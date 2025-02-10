@@ -13,18 +13,38 @@ torch.backends.cuda.matmul.allow_tf32 = True
 # torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
 # torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
 torch._C._jit_set_autocast_mode(False)
-
+import torch.nn.init as init
 '''
 This will load RWKV-7 "Goose" x070 and inference in GPT-mode (slower than RNN-mode for autoregressive generation)
 '''
 
 args = types.SimpleNamespace()
 
+# model download: https://huggingface.co/BlinkDL/rwkv-7-pile
 
+MODEL_PATH = "/mnt/e/RWKV-x070-Pile-168M-20241120-ctx4096.pth"
+# MODEL_PATH = "/mnt/program/RWKV-x070-Pile-421M-20241127-ctx4096.pth"
+
+if '168M' in MODEL_PATH:
+    args.n_layer = 12
+    args.n_embd = 768
+    D_DECAY_LORA = 64
+    D_AAA_LORA = 64
+    D_MV_LORA = 32
+    D_GATE_LORA = 128
+elif '421M' in MODEL_PATH:
+    args.n_layer = 24
+    args.n_embd = 1024
+    D_DECAY_LORA = 64
+    D_AAA_LORA = 64
+    D_MV_LORA = 64
+    D_GATE_LORA = 128
+
+args.vocab_size = 50304 # "pile" model: 50277 padded to 50304
 from tokenizers import Tokenizer
 
-# DTYPE = torch.bfloat16
-DTYPE = torch.half # better
+DTYPE = torch.bfloat16
+#DTYPE = torch.half # better
 
 args.head_size_a = 64 # don't change
 HEAD_SIZE = args.head_size_a
@@ -43,7 +63,7 @@ if USE_CUDA_KERNEL:
 
     from torch.utils.cpp_extension import load
 
-    load(name="wkv7", sources=["standard_rwkv\cuda/wkv7_op.cpp", f"standard_rwkv\cuda/wkv7.cu"], is_python_module=False,
+    load(name="wkv7", sources=["standard_rwkv/cuda/wkv7_op.cpp", f"standard_rwkv/cuda/wkv7.cu"], is_python_module=False,
                         verbose=True, extra_cuda_cflags=["-res-usage", "--use_fast_math", "-O3", "-Xptxas -O3", "--extra-device-vectorization", f"-D_N_={HEAD_SIZE}"])
     class WKV_7(torch.autograd.Function):
         @staticmethod
@@ -160,8 +180,41 @@ class RWKV_Tmix_x070(MyModule):
         self.output = nn.Linear(C, C, bias=False)
         self.ln_x = nn.GroupNorm(H, C, eps=64e-5) # !!! notice eps value !!!
 
+        # Initialize all parameters
+        init.normal_(self.x_r, mean=0, std=0.02)
+        init.normal_(self.x_w, mean=0, std=0.02)
+        init.normal_(self.x_k, mean=0, std=0.02)
+        init.normal_(self.x_v, mean=0, std=0.02)
+        init.normal_(self.x_a, mean=0, std=0.02)
+        init.normal_(self.x_g, mean=0, std=0.02)
+
+        init.normal_(self.w0, mean=0, std=0.02)
+        init.normal_(self.w1, mean=0, std=0.02)
+        init.normal_(self.w2, mean=0, std=0.02)
+
+        init.normal_(self.a0, mean=0, std=0.02)
+        init.normal_(self.a1, mean=0, std=0.02)
+        init.normal_(self.a2, mean=0, std=0.02)
+
+        init.normal_(self.v0, mean=0, std=0.02)
+        init.normal_(self.v1, mean=0, std=0.02)
+        init.normal_(self.v2, mean=0, std=0.02)
+
+        init.normal_(self.g1, mean=0, std=0.02)
+        init.normal_(self.g2, mean=0, std=0.02)
+
+        init.normal_(self.k_k, mean=0, std=0.02)
+        init.normal_(self.k_a, mean=0, std=0.02)
+        init.normal_(self.r_k, mean=0, std=0.02)
+
+        # Initialize Linear layers
+        init.normal_(self.receptance.weight, mean=0, std=0.02)
+        init.normal_(self.key.weight, mean=0, std=0.02)
+        init.normal_(self.value.weight, mean=0, std=0.02)
+        init.normal_(self.output.weight, mean=0, std=0.02)# !!! notice eps value !!!
+
     @MyFunction
-    def forward(self, x, v_first):
+    def forward(self, x, v_first=None):
         B, T, C = x.size()
         H = self.n_head
         xx = self.time_shift(x) - x
@@ -208,9 +261,13 @@ class RWKV_CMix_x070(MyModule):
 
         with torch.no_grad():
             self.x_k = nn.Parameter(torch.empty(1, 1, args.n_embd))
-
+        
         self.key = nn.Linear(args.n_embd, args.dim_ffn, bias=False)
         self.value = nn.Linear(args.dim_ffn, args.n_embd, bias=False)
+        
+        init.normal_(self.key.weight, mean=0, std=0.02)
+        init.normal_(self.value.weight, mean=0, std=0.02)
+        init.normal_(self.x_k, mean=0, std=0.02)
 
     @MyFunction
     def forward(self, x):
@@ -277,9 +334,5 @@ class RWKV(nn.Module):
         x = self.head(x)
 
         return x
-
-args = types.SimpleNamespace()
-args.n_layer = 12
-args.n_embd = 768
-args.vocab_size = 50304 # "pile" model: 50277 padded to 50304
-args.head_size = 64
+args.dim_att = args.n_embd
+args.dim_ffn = args.n_embd * 4

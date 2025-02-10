@@ -64,7 +64,7 @@ if USE_CUDA_KERNEL:
 
     from torch.utils.cpp_extension import load
 
-    load(name="wkv7", sources=["cuda/wkv7_op.cpp", f"cuda/wkv7.cu"], is_python_module=False,
+    load(name="wkv7", sources=["standard_rwkv/cuda/wkv7_op.cpp", f"standard_rwkv/cuda/wkv7.cu"], is_python_module=False,
                         verbose=True, extra_cuda_cflags=["-res-usage", "--use_fast_math", "-O3", "-Xptxas -O3", "--extra-device-vectorization", f"-D_N_={HEAD_SIZE}"])
     class WKV_7(torch.autograd.Function):
         @staticmethod
