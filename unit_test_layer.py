@@ -74,5 +74,5 @@ my_time_mix_out = my_time_mix(x)
 standard_time_mix_out = standard_time_mix(x)
 time_mix_is_close = bool(ops.all(ops.isclose(my_time_mix_out[0],standard_time_mix_out[0])))
 v_first_is_close = bool(ops.all(ops.isclose(my_time_mix_out[1],standard_time_mix_out[1])))
-print(f"tmix check flag :{time_mix_is_close}")
+print(f"tmix check flag :{time_mix_is_close}")#还没对齐，还要测试哪里有问题
 print(f"v_first check flag :{v_first_is_close}")
