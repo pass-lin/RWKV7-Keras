@@ -49,7 +49,7 @@ DTYPE = torch.bfloat16
 args.head_size_a = 64 # don't change
 HEAD_SIZE = args.head_size_a
 
-USE_CUDA_KERNEL = True # False => UNOPTIMIZED, VERY SLOW
+USE_CUDA_KERNEL = False # False => UNOPTIMIZED, VERY SLOW
 
 MyModule = torch.jit.ScriptModule
 MyFunction = torch.jit.script_method
@@ -133,7 +133,7 @@ else:
 # RWKV TimeMix
 ########################################################################################################
 
-class RWKV_Tmix_x070(MyModule):
+class RWKV_Tmix_x070(nn.Module):
     def __init__(self, args, layer_id):
         super().__init__()
         self.args = args
@@ -211,9 +211,11 @@ class RWKV_Tmix_x070(MyModule):
         init.normal_(self.receptance.weight, mean=0, std=0.02)
         init.normal_(self.key.weight, mean=0, std=0.02)
         init.normal_(self.value.weight, mean=0, std=0.02)
-        init.normal_(self.output.weight, mean=0, std=0.02)# !!! notice eps value !!!
+        init.normal_(self.output.weight, mean=0, std=0.02)
+        
+        init.normal_(self.ln_x.weight, mean=0, std=0.02)
+        init.normal_(self.ln_x.bias, mean=0, std=0.02)# !!! notice eps value !!!
 
-    @MyFunction
     def forward(self, x, v_first=None):
         B, T, C = x.size()
         H = self.n_head

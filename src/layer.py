@@ -3,19 +3,19 @@ from keras import ops
 from keras.layers import Dense,Layer
 from standard_rwkv.rwkv7_layer import RWKV7_OP
 class GroupNorm(Layer):
-    def __init__(self,hidden_size,head_size,epsilon=64*1e-5,name="group_norm",**kwargs):
+    def __init__(self,hidden_size,num_heads,epsilon=64*1e-5,name="group_norm",**kwargs):
         super(GroupNorm,self).__init__(name=name,**kwargs)
 
         self.hidden_size = hidden_size
-        self.head_size = head_size
-        self.num_heads = hidden_size // head_size
+        self.head_size = hidden_size //num_heads
+        self.num_heads = num_heads
         self.epsilon =epsilon
-        assert hidden_size % head_size == 0
+        assert hidden_size % num_heads == 0
 
-    def call(self,inputs):
-        B,T,C = ops.shape(inputs)
+    def call(self,inputs,shape):
+        B,T,C = shape
         x = ops.reshape(inputs,(B,T,self.num_heads,self.head_size))
-        x =  ops.reshape(self.scale,(1,1,self.num_heads,self.head_size)) * self.group_ln(x) +  ops.reshape(self.offset,(1,1,self.num_heads,self.head_size))
+        x =  ops.reshape(self.scale,(1,1,self.num_heads,self.head_size)) * x +  ops.reshape(self.offset,(1,1,self.num_heads,self.head_size))
         o = ops.reshape(x,(B,T,C))
         return o
     def compute_output_shape(self, input_shape):
@@ -24,10 +24,9 @@ class GroupNorm(Layer):
         super().build(input_shape)
         self.scale = self.add_weight(shape=(self.num_heads,self.head_size))
         self.offset = self.add_weight(shape=(self.num_heads,self.head_size))
-        self.group_ln = keras.layers.LayerNormalization(epsilon=64*1e-5,dtype=self.dtype)
     def get_config(self):
         config = {
-            'head_size':self.head_size,
+            'num_heads':self.num_heads,
             'hidden_size':self.hidden_size,
             'epsilon':self.epsilon
         }
@@ -75,7 +74,7 @@ class RWKV7_ChannelMix(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
-class RKWV7_TimeMix(Layer):
+class RWKV7_TimeMix(Layer):
     def __init__(self,hidden_size,
                  head_size,
                  gate_lora = 128,
@@ -126,12 +125,12 @@ class RKWV7_TimeMix(Layer):
         self.k_a = self.add_weight(shape=(1,1,C), name="k_a")
         self.r_k = self.add_weight(shape=(H,N), name="r_k")
                                 
-        self.time_shif = TimeShift()
-        self.receptance = Dense(C, bias=False)
-        self.key = Dense(C, bias=False)
-        self.value = Dense(C, bias=False)
-        self.output = Dense(C, bias=False)
-        self.ln_x = GroupNorm(H, C, epsilon=64e-5)
+        self.time_shift = TimeShift()
+        self.receptance = Dense(C, use_bias=False)
+        self.key = Dense(C, use_bias=False)
+        self.value = Dense(C, use_bias=False)
+        self.output = Dense(C, use_bias=False)
+        self.ln_x = GroupNorm(C, H,  epsilon=64e-5)
 
     def call(self,x,v_first=None,mask=None):
         B, T, C = ops.shape(x)
@@ -158,20 +157,20 @@ class RKWV7_TimeMix(Layer):
         g = ops.sigmoid(xg @ self.g1) @ self.g2
 
         kk = k * self.k_k
-        kk = ops.normalize(ops.reshape(kk,(B,T,H,-1)), axis=-1, order=2., epsilon=1e-12)
+        kk = ops.normalize(ops.reshape(kk,(B,T,H,-1)), axis=-1, order=2, epsilon=1e-12)
         kk = ops.reshape(kk,(B,T,C))
 
         k = k * (1 + (a-1) * self.k_a)
 
         x = RWKV7_OP(r, w, k, v, -kk, kk*a)
-        x = self.ln_x(ops.reshape(x,(B * T, C)))
+        x = self.ln_x(ops.reshape(x,(B * T, C)),shape = ops.shape(x))
 
         x = ops.reshape(x,(B, T, C))
         r = ops.reshape(r,(B,T,H,-1))
         k = ops.reshape(k,(B,T,H,-1))
         v = ops.reshape(v,(B, T, C))
 
-        rwkv = ops.sum(r*k*self.r_k,dim=-1, keepdim=True) * v
+        rwkv = ops.sum(r*k*self.r_k,axis=-1, keepdims=True) * ops.reshape(v,(B,T,H,-1))
 
         x = x + ops.reshape(rwkv,(B,T,C))
         x = self.output(x * g)
