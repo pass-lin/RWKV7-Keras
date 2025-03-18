@@ -8,7 +8,7 @@ import torch
 import triton
 import triton.language as tl
 
-from fla.utils import use_cuda_graph
+from ops.torch_kernel.utils import use_cuda_graph
 
 
 @triton.heuristics({

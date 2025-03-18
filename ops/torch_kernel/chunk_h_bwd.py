@@ -7,9 +7,9 @@ import torch
 import triton
 import triton.language as tl
 
-from fla.ops.common.utils import prepare_chunk_offsets
-from fla.ops.utils.math import exp
-from fla.utils import is_triton_shared_mem_enough, use_cuda_graph
+from ops.torch_kernel.utils import prepare_chunk_offsets
+from ops.torch_kernel.math import exp
+from ops.torch_kernel.utils import is_triton_shared_mem_enough, use_cuda_graph
 
 
 @triton.heuristics({

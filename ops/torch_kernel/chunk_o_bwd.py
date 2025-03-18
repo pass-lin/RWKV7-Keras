@@ -8,9 +8,11 @@ import torch
 import triton
 import triton.language as tl
 
-from fla.utils import (device_capacity, is_triton_shared_mem_enough,
-                       use_cuda_graph)
-from fla.ops.utils.math import exp
+from ops.torch_kernel.utils import (
+                        device_capacity, 
+                        is_triton_shared_mem_enough,
+                        use_cuda_graph)
+from ops.torch_kernel.math import exp
 BK_LIST = [64, 128] if device_capacity else [16, 32]
 
 

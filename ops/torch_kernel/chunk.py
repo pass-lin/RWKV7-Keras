@@ -7,22 +7,93 @@ from typing import Optional
 import torch
 import triton
 
-from fla.ops.common.utils import prepare_chunk_indices
-from fla.ops.generalized_delta_rule.dplr.chunk_A_bwd import \
+from ops.torch_kernel.utils import prepare_chunk_indices
+from ops.torch_kernel.chunk_A_bwd import \
     chunk_dplr_bwd_dqk_intra
-from fla.ops.generalized_delta_rule.dplr.chunk_A_fwd import \
+from ops.torch_kernel.chunk_A_fwd import \
     chunk_fwd_intra_dplr_fn
-from fla.ops.generalized_delta_rule.dplr.chunk_h_bwd import chunk_dplr_bwd_dhu
-from fla.ops.generalized_delta_rule.dplr.chunk_h_fwd import chunk_dplr_fwd_h
-from fla.ops.generalized_delta_rule.dplr.chunk_o_bwd import (
+from ops.torch_kernel.chunk_h_bwd import chunk_dplr_bwd_dhu
+from ops.torch_kernel.chunk_h_fwd import chunk_dplr_fwd_h
+from ops.torch_kernel.chunk_o_bwd import (
     chunk_dplr_bwd_dAu, chunk_dplr_bwd_dv, chunk_dplr_bwd_o)
-from fla.ops.generalized_delta_rule.dplr.chunk_o_fwd import chunk_dplr_fwd_o
-from fla.ops.generalized_delta_rule.dplr.wy_fast_bwd import chunk_dplr_bwd_wy
-from fla.ops.generalized_delta_rule.dplr.wy_fast_fwd import fwd_prepare_wy_repr
-from fla.ops.rwkv6.chunk import chunk_rwkv6_fwd_cumsum
-from fla.utils import autocast_custom_bwd, autocast_custom_fwd, input_guard
+from ops.torch_kernel.chunk_o_fwd import chunk_dplr_fwd_o
+from ops.torch_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
+from ops.torch_kernel.wy_fast_fwd import fwd_prepare_wy_repr
+from ops.torch_kernel.utils import autocast_custom_bwd, autocast_custom_fwd, input_guard
+import triton.language as tl
+@triton.jit(do_not_specialize=['T'])
+def chunk_rwkv6_fwd_cumsum_kernel(
+    s,
+    oi,
+    oe,
+    offsets,
+    indices,
+    T,
+    H: tl.constexpr,
+    S: tl.constexpr,
+    BT: tl.constexpr,
+    BS: tl.constexpr,
+    HEAD_FIRST: tl.constexpr,
+    USE_OFFSETS: tl.constexpr,
+):
+    i_s, i_t, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
+    i_b, i_h = i_bh // H, i_bh % H
+    if USE_OFFSETS:
+        i_n, i_t = tl.load(indices + i_t * 2).to(tl.int32), tl.load(indices + i_t * 2 + 1).to(tl.int32)
+        bos, eos = tl.load(offsets + i_n).to(tl.int32), tl.load(offsets + i_n + 1).to(tl.int32)
+        T = eos - bos
+    else:
+        bos, eos = i_b * T, i_b * T + T
 
+    o_i = tl.arange(0, BT)
+    m_i = tl.where(o_i[:, None] >= o_i[None, :], 1., 0.).to(tl.float32)
+    m_e = tl.where(o_i[:, None] > o_i[None, :], 1., 0.).to(tl.float32)
 
+    if HEAD_FIRST:
+        p_s = tl.make_block_ptr(s + i_bh * T*S, (T, S), (S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
+        p_oi = tl.make_block_ptr(oi + i_bh * T*S, (T, S), (S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
+        p_oe = tl.make_block_ptr(oe + i_bh * T*S, (T, S), (S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
+    else:
+        p_s = tl.make_block_ptr(s + (bos * H + i_h) * S, (T, S), (H*S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
+        p_oi = tl.make_block_ptr(oi + (bos * H + i_h) * S, (T, S), (H*S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
+        p_oe = tl.make_block_ptr(oe + (bos * H + i_h) * S, (T, S), (H*S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
+    # [BT, BS]
+    b_s = tl.load(p_s, boundary_check=(0, 1)).to(tl.float32)
+    b_oi = tl.dot(m_i, b_s)
+    b_oe = tl.dot(m_e, b_s)
+    tl.store(p_oi, b_oi.to(p_oi.dtype.element_ty, fp_downcast_rounding="rtne"), boundary_check=(0, 1))
+    tl.store(p_oe, b_oe.to(p_oe.dtype.element_ty, fp_downcast_rounding="rtne"), boundary_check=(0, 1))
+    
+def chunk_rwkv6_fwd_cumsum(
+    g: torch.Tensor,
+    chunk_size: int,
+    offsets: Optional[torch.Tensor] = None,
+    indices: Optional[torch.Tensor] = None,
+    head_first: bool = True
+) -> torch.Tensor:
+    if head_first:
+        B, H, T, S = g.shape
+    else:
+        B, T, H, S = g.shape
+    BT = chunk_size
+    NT = triton.cdiv(T, BT) if offsets is None else len(indices)
+
+    gi, ge = torch.empty_like(g, dtype=torch.float), torch.empty_like(g, dtype=torch.float)
+    def grid(meta): return (triton.cdiv(meta['S'], meta['BS']), NT, B * H)
+    # keep cummulative normalizer in fp32
+    chunk_rwkv6_fwd_cumsum_kernel[grid](
+        g,
+        gi,
+        ge,
+        offsets,
+        indices,
+        T=T,
+        H=H,
+        S=S,
+        BT=BT,
+        HEAD_FIRST=head_first
+    )
+    return gi, ge
 def chunk_dplr_fwd(
     q: torch.Tensor,
     k: torch.Tensor,

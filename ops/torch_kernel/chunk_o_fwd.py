@@ -8,7 +8,7 @@ import torch
 import triton
 import triton.language as tl
 
-from fla.utils import device_capacity, use_cuda_graph
+from ops.torch_kernel.utils import device_capacity, use_cuda_graph
 
 BK_LIST = [64, 128] if device_capacity else [16, 32]
 
