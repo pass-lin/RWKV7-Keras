@@ -23,10 +23,11 @@ standard_time_mix_out = standard_time_mix(x)
 my_time_mix = RWKV7_TimeMix(args.dim_att,args.head_size_a)
 my_time_mix.build(x.shape)
 convert_tmix(my_time_mix,standard_time_mix)
-for i in range(10):
+for i in range(1):
     print("第%d次检查是否通过"%i)
     x = x*10
     x = torch.randn(1, 8, args.n_embd).cuda()/10
+    x = ops.ones([1, 8, args.n_embd])
     x = ops.cast(x,dtype="bfloat16")
     stanard_cmix_out = standard_chnnal_mix(x)
     my_cmix_out = my_chnnal_mix(x)

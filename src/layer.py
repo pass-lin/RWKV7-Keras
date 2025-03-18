@@ -147,6 +147,13 @@ class RWKV7_TimeMix(Layer):
         k = k * (1 + (a-1) * self.k_a)
         if mask is not None:
             w = w*mask + 1-mask
+        #N = self.head_size
+        #r = ops.reshape(r,(B, T, C // self.head_size, self.head_size))
+        #k = ops.reshape(k,(B, T, C // self.head_size, self.head_size))
+        #v = ops.reshape(v,(B, T, C // self.head_size, self.head_size))
+        #a = ops.reshape(a,(B, T, C // self.head_size, self.head_size))
+        #kk = ops.reshape(kk,(B, T, C // self.head_size, self.head_size))
+        
         x = RWKV7_OP(r, w, k, v, -kk, kk*a)
         
         x = ops.reshape(self.ln_x(ops.reshape(x,(B * T, C))),ops.shape(x))
