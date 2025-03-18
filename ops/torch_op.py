@@ -19,12 +19,11 @@ from ops.torch_kernel.utils import use_cuda_graph
 def cal_log_w(w: torch.Tensor) -> torch.Tensor:
     return -torch.exp(w)
 
-@triton.heuristics({
-    'USE_OFFSETS': lambda args: args['offsets'] is not None
-})
+
+@triton.heuristics({"USE_OFFSETS": lambda args: args["offsets"] is not None})
 @triton.autotune(
     configs=[
-        triton.Config({'BV': BV}, num_warps=num_warps, num_stages=num_stages)
+        triton.Config({"BV": BV}, num_warps=num_warps, num_stages=num_stages)
         for BV in [32, 64]
         for num_warps in [2, 4, 8, 16]
         for num_stages in [2, 3, 4]
@@ -32,11 +31,16 @@ def cal_log_w(w: torch.Tensor) -> torch.Tensor:
     key=["BK"],
     use_cuda_graph=use_cuda_graph,
 )
-@triton.jit(do_not_specialize=['T'])
+@triton.jit(do_not_specialize=["T"])
 def fused_rwkv7_kernel(
-    q_ptr, k_ptr, v_ptr,
-    w_ptr, a_ptr, b_ptr,
-    state_ptr, output_ptr,
+    q_ptr,
+    k_ptr,
+    v_ptr,
+    w_ptr,
+    a_ptr,
+    b_ptr,
+    state_ptr,
+    output_ptr,
     state_output_ptr,
     K: tl.constexpr,
     V: tl.constexpr,
@@ -56,19 +60,22 @@ def fused_rwkv7_kernel(
     i_n, i_h = i_nh // H, i_nh % H
 
     if USE_OFFSETS:
-        bos, eos = tl.load(offsets + i_n).to(tl.int64), tl.load(offsets + i_n + 1).to(tl.int64)
+        bos, eos = (
+            tl.load(offsets + i_n).to(tl.int64),
+            tl.load(offsets + i_n + 1).to(tl.int64),
+        )
         L = eos - bos
     else:
         bos, eos = i_n * L, i_n * L + L
 
     if HEAD_FIRST:
-        p_q = q_ptr + i_nh * L*K + tl.arange(0, BK)
-        p_k = k_ptr + i_nh * L*K + tl.arange(0, BK)
-        p_w = w_ptr + i_nh * L*K + tl.arange(0, BK)
-        p_a = a_ptr + i_nh * L*K + tl.arange(0, BK)
-        p_b = b_ptr + i_nh * L*K + tl.arange(0, BK)
-        p_o = output_ptr + i_nh * L*V + i_v * BV + tl.arange(0, BV)
-        p_v = v_ptr + i_nh * L*V + i_v * BV + tl.arange(0, BV)
+        p_q = q_ptr + i_nh * L * K + tl.arange(0, BK)
+        p_k = k_ptr + i_nh * L * K + tl.arange(0, BK)
+        p_w = w_ptr + i_nh * L * K + tl.arange(0, BK)
+        p_a = a_ptr + i_nh * L * K + tl.arange(0, BK)
+        p_b = b_ptr + i_nh * L * K + tl.arange(0, BK)
+        p_o = output_ptr + i_nh * L * V + i_v * BV + tl.arange(0, BV)
+        p_v = v_ptr + i_nh * L * V + i_v * BV + tl.arange(0, BV)
     else:
         p_q = q_ptr + (bos * H + i_h) * K + tl.arange(0, BK)
         p_k = k_ptr + (bos * H + i_h) * K + tl.arange(0, BK)
@@ -85,7 +92,12 @@ def fused_rwkv7_kernel(
     b_h = tl.zeros([BV, BK], dtype=tl.float32)
 
     if USE_INITIAL_STATE:
-        p_h0 = state_ptr + i_nh * K * V + (tl.arange(0, BK)[None, :]) * V + ((i_v * BV + tl.arange(0, BV))[:, None])
+        p_h0 = (
+            state_ptr
+            + i_nh * K * V
+            + (tl.arange(0, BK)[None, :]) * V
+            + ((i_v * BV + tl.arange(0, BV))[:, None])
+        )
         b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)
 
     for _ in range(0, L):
@@ -97,34 +109,47 @@ def fused_rwkv7_kernel(
         b_b = tl.load(p_b, mask=mask_k, other=0).to(tl.float32)
         # to store
         tmp = tl.sum(b_h * b_a[None, :], axis=1)
-        b_h = exp(-exp(b_w))[None, :] * b_h + (tmp[:, None] * b_b[None, :] + b_k[None, :] * b_v[:, None])
+        b_h = exp(-exp(b_w))[None, :] * b_h + (
+            tmp[:, None] * b_b[None, :] + b_k[None, :] * b_v[:, None]
+        )
         _o = b_h * b_q[None, :]
         _o = tl.sum(_o, axis=1)
         tl.store(p_o, _o.to(p_o.dtype.element_ty), mask=mask_v)
-        p_q += K if HEAD_FIRST else K*H
-        p_k += K if HEAD_FIRST else K*H
-        p_w += K if HEAD_FIRST else K*H
-        p_o += V if HEAD_FIRST else V*H
-        p_v += V if HEAD_FIRST else V*H
-        p_a += K if HEAD_FIRST else K*H
-        p_b += K if HEAD_FIRST else K*H
+        p_q += K if HEAD_FIRST else K * H
+        p_k += K if HEAD_FIRST else K * H
+        p_w += K if HEAD_FIRST else K * H
+        p_o += V if HEAD_FIRST else V * H
+        p_v += V if HEAD_FIRST else V * H
+        p_a += K if HEAD_FIRST else K * H
+        p_b += K if HEAD_FIRST else K * H
 
     if STORE_FINAL_STATE:
-        p_ht = state_output_ptr + i_nh * K * V + (tl.arange(0, BK)[None, :]) * V + ((i_v * BV + tl.arange(0, BV))[:, None])
+        p_ht = (
+            state_output_ptr
+            + i_nh * K * V
+            + (tl.arange(0, BK)[None, :]) * V
+            + ((i_v * BV + tl.arange(0, BV))[:, None])
+        )
         tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)
 
 
 class FusedRecurrentRWKV7Function(torch.autograd.Function):
-
     @staticmethod
     @input_guard
-    def forward(ctx, q, k, v, w, a, b,
-                scale=None,
-                initial_state=None,
-                output_final_state=False,
-                offsets=None,
-                head_first=False
-                ):
+    def forward(
+        ctx,
+        q,
+        k,
+        v,
+        w,
+        a,
+        b,
+        scale=None,
+        initial_state=None,
+        output_final_state=False,
+        offsets=None,
+        head_first=False,
+    ):
         if head_first:
             B, H, L, K, V = *k.shape, v.shape[-1]
         else:
@@ -143,12 +168,23 @@ class FusedRecurrentRWKV7Function(torch.autograd.Function):
             final_state = None
             use_initial_state = False
 
-        def grid(meta): return (triton.cdiv(V, meta['BV']), N * H)
+        def grid(meta):
+            return (triton.cdiv(V, meta["BV"]), N * H)
 
         fused_rwkv7_kernel[grid](
-            q, k, v, w, a, b,
-            initial_state, output, final_state,
-            K, V, L, H,
+            q,
+            k,
+            v,
+            w,
+            a,
+            b,
+            initial_state,
+            output,
+            final_state,
+            K,
+            V,
+            L,
+            H,
             offsets=offsets,
             scale=scale,
             BK=BK,
@@ -180,7 +216,6 @@ def fused_recurrent_rwkv7(
     output_final_state: bool = True,
     cu_seqlens: Optional[torch.LongTensor] = None,
     head_first: bool = False,
-
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
@@ -216,24 +251,38 @@ def fused_recurrent_rwkv7(
     if w is not None:
         if cu_seqlens is not None:
             if r.shape[0] != 1:
-                raise ValueError(f"The batch size is expected to be 1 rather than {r.shape[0]} when using `cu_seqlens`."
-                                 f"Please flatten variable-length inputs before processing.")
+                raise ValueError(
+                    f"The batch size is expected to be 1 rather than {r.shape[0]} when using `cu_seqlens`."
+                    f"Please flatten variable-length inputs before processing."
+                )
             if head_first:
-                raise RuntimeError("Sequences with variable lengths are not supported for head-first mode")
-            if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
-                raise ValueError(f"The number of initial states is expected to be equal to the number of input sequences, "
-                                 f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}.")
+                raise RuntimeError(
+                    "Sequences with variable lengths are not supported for head-first mode"
+                )
+            if (
+                initial_state is not None
+                and initial_state.shape[0] != len(cu_seqlens) - 1
+            ):
+                raise ValueError(
+                    f"The number of initial states is expected to be equal to the number of input sequences, "
+                    f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."
+                )
         if scale is None:
             scale = r.shape[-1] ** -0.5
         else:
             assert scale > 0, "scale must be positive"
         o, final_state = FusedRecurrentRWKV7Function.apply(
-            r, k, v, w, a, b,
+            r,
+            k,
+            v,
+            w,
+            a,
+            b,
             scale,
             initial_state,
             output_final_state,
             cu_seqlens,
-            head_first
+            head_first,
         )
         return o, final_state
     elif log_w is not None:
@@ -248,12 +297,10 @@ def fused_recurrent_rwkv7(
             initial_state=initial_state,
             output_final_state=output_final_state,
             cu_seqlens=cu_seqlens,
-            head_first=head_first
+            head_first=head_first,
         )
     else:
         raise ValueError("Either `w` or `log_w` must be provided.")
-
-
 
 
 def chunk_rwkv7(
@@ -268,7 +315,7 @@ def chunk_rwkv7(
     initial_state: torch.Tensor = None,
     output_final_state: bool = True,
     cu_seqlens: Optional[torch.LongTensor] = None,
-    head_first: bool = False
+    head_first: bool = False,
 ):
     """
     Args:
@@ -318,8 +365,10 @@ def chunk_rwkv7(
         initial_state=initial_state,
         output_final_state=output_final_state,
         cu_seqlens=cu_seqlens,
-        head_first=head_first
+        head_first=head_first,
     )
+
+
 def RWKV7_OP(
     r: torch.Tensor,
     k: torch.Tensor,
@@ -333,7 +382,7 @@ def RWKV7_OP(
     output_final_state: bool = True,
     cu_seqlens: Optional[torch.LongTensor] = None,
     head_first: bool = False,
-    mode = "chunk"
+    mode="chunk",
 ):
     """
     Args:
@@ -381,15 +430,15 @@ def RWKV7_OP(
             cu_seqlens=cu_seqlens,
         )
     return fused_recurrent_rwkv7(
-            r=r,
-            k=k,
-            v=v,
-            a=a,
-            b=b,
-            w=w,
-            log_w=log_w,
-            scale=scale,
-            initial_state=initial_state,
-            output_final_state=output_final_state,
-            cu_seqlens=cu_seqlens,
-        )
+        r=r,
+        k=k,
+        v=v,
+        a=a,
+        b=b,
+        w=w,
+        log_w=log_w,
+        scale=scale,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        cu_seqlens=cu_seqlens,
+    )

@@ -15,22 +15,24 @@ from ops.torch_kernel.utils import input_guard
 from ops.torch_kernel.utils import use_cuda_graph
 
 
-@triton.heuristics({
-    'USE_INITIAL_STATE': lambda args: args['h0'] is not None,
-    'STORE_FINAL_STATE': lambda args: args['ht'] is not None,
-    'USE_OFFSETS': lambda args: args['offsets'] is not None
-})
+@triton.heuristics(
+    {
+        "USE_INITIAL_STATE": lambda args: args["h0"] is not None,
+        "STORE_FINAL_STATE": lambda args: args["ht"] is not None,
+        "USE_OFFSETS": lambda args: args["offsets"] is not None,
+    }
+)
 @triton.autotune(
     configs=[
-        triton.Config({'BV': BV}, num_warps=num_warps, num_stages=num_stages)
+        triton.Config({"BV": BV}, num_warps=num_warps, num_stages=num_stages)
         for BV in [16, 32, 64]
         for num_warps in [2, 4, 8, 16]
         for num_stages in [2, 3, 4]
     ],
-    key=['BK'],
+    key=["BK"],
     use_cuda_graph=use_cuda_graph,
 )
-@triton.jit(do_not_specialize=['T'])
+@triton.jit(do_not_specialize=["T"])
 def fused_recurrent_dplr_delta_rule_fwd_kernel(
     q,
     k,
@@ -54,13 +56,16 @@ def fused_recurrent_dplr_delta_rule_fwd_kernel(
     USE_INITIAL_STATE: tl.constexpr,
     STORE_FINAL_STATE: tl.constexpr,
     USE_OFFSETS: tl.constexpr,
-    HEAD_FIRST: tl.constexpr
+    HEAD_FIRST: tl.constexpr,
 ):
     i_v, i_nh = tl.program_id(0).to(tl.int64), tl.program_id(1).to(tl.int64)
     i_n, i_h = i_nh // H, i_nh % H
 
     if USE_OFFSETS:
-        bos, eos = tl.load(offsets + i_n).to(tl.int64), tl.load(offsets + i_n + 1).to(tl.int64)
+        bos, eos = (
+            tl.load(offsets + i_n).to(tl.int64),
+            tl.load(offsets + i_n + 1).to(tl.int64),
+        )
         T = eos - bos
     else:
         bos, eos = i_n * T, i_n * T + T
@@ -68,22 +73,22 @@ def fused_recurrent_dplr_delta_rule_fwd_kernel(
     o_k = tl.arange(0, BK)
     o_v = i_v * BV + tl.arange(0, BV)
     if HEAD_FIRST:
-        p_q = q + i_nh * T*K + ((T-1) * K if REVERSE else 0) + o_k
-        p_k = k + i_nh * T*K + ((T-1) * K if REVERSE else 0) + o_k
-        p_a = a + i_nh * T*K + ((T-1) * K if REVERSE else 0) + o_k
-        p_b = b + i_nh * T*K + ((T-1) * K if REVERSE else 0) + o_k
-        p_gk = gk + i_nh * T*K + ((T-1) * K if REVERSE else 0) + o_k
-        p_v = v + i_nh * T*V + ((T-1) * V if REVERSE else 0) + o_v
-        p_o = o + i_nh * T*V + ((T-1) * V if REVERSE else 0) + o_v
+        p_q = q + i_nh * T * K + ((T - 1) * K if REVERSE else 0) + o_k
+        p_k = k + i_nh * T * K + ((T - 1) * K if REVERSE else 0) + o_k
+        p_a = a + i_nh * T * K + ((T - 1) * K if REVERSE else 0) + o_k
+        p_b = b + i_nh * T * K + ((T - 1) * K if REVERSE else 0) + o_k
+        p_gk = gk + i_nh * T * K + ((T - 1) * K if REVERSE else 0) + o_k
+        p_v = v + i_nh * T * V + ((T - 1) * V if REVERSE else 0) + o_v
+        p_o = o + i_nh * T * V + ((T - 1) * V if REVERSE else 0) + o_v
 
     else:
-        p_q = q + (bos + ((T-1) if REVERSE else 0)) * H*K + i_h * K + o_k
-        p_k = k + (bos + ((T-1) if REVERSE else 0)) * H*K + i_h * K + o_k
-        p_a = a + (bos + ((T-1) if REVERSE else 0)) * H*K + i_h * K + o_k
-        p_b = b + (bos + ((T-1) if REVERSE else 0)) * H*K + i_h * K + o_k
-        p_gk = gk + (bos + ((T-1) if REVERSE else 0)) * H*K + i_h * K + o_k
-        p_v = v + (bos + ((T-1) if REVERSE else 0)) * H*V + i_h * V + o_v
-        p_o = o + (bos + ((T-1) if REVERSE else 0)) * H*V + i_h * V + o_v
+        p_q = q + (bos + ((T - 1) if REVERSE else 0)) * H * K + i_h * K + o_k
+        p_k = k + (bos + ((T - 1) if REVERSE else 0)) * H * K + i_h * K + o_k
+        p_a = a + (bos + ((T - 1) if REVERSE else 0)) * H * K + i_h * K + o_k
+        p_b = b + (bos + ((T - 1) if REVERSE else 0)) * H * K + i_h * K + o_k
+        p_gk = gk + (bos + ((T - 1) if REVERSE else 0)) * H * K + i_h * K + o_k
+        p_v = v + (bos + ((T - 1) if REVERSE else 0)) * H * V + i_h * V + o_v
+        p_o = o + (bos + ((T - 1) if REVERSE else 0)) * H * V + i_h * V + o_v
 
     mask_k = o_k < K
     mask_v = o_v < V
@@ -91,7 +96,7 @@ def fused_recurrent_dplr_delta_rule_fwd_kernel(
     b_h = tl.zeros([BV, BK], dtype=tl.float32)
 
     if USE_INITIAL_STATE:
-        p_h0 = h0 + i_nh * K*V + o_k[None, :] * V + o_v[:, None]
+        p_h0 = h0 + i_nh * K * V + o_k[None, :] * V + o_v[:, None]
         b_h += tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)
 
     for _ in range(0, T):
@@ -103,7 +108,9 @@ def fused_recurrent_dplr_delta_rule_fwd_kernel(
         b_v = tl.load(p_v, mask=mask_v, other=0).to(tl.float32)
 
         tmp = tl.sum(b_h * b_a[None, :], axis=1)
-        b_h = exp(b_gk)[None, :] * b_h + (tmp[:, None] * b_b[None, :] + b_k[None, :] * b_v[:, None])
+        b_h = exp(b_gk)[None, :] * b_h + (
+            tmp[:, None] * b_b[None, :] + b_k[None, :] * b_v[:, None]
+        )
         b_o = tl.sum(b_h * b_q[None, :], axis=1)
 
         tl.store(p_o, b_o.to(p_o.dtype.element_ty), mask=mask_v)
@@ -116,7 +123,7 @@ def fused_recurrent_dplr_delta_rule_fwd_kernel(
         p_o += (-1 if REVERSE else 1) * (1 if HEAD_FIRST else H) * V
 
     if STORE_FINAL_STATE:
-        p_ht = ht + i_nh * K*V + o_k[None, :] * V + o_v[:, None]
+        p_ht = ht + i_nh * K * V + o_k[None, :] * V + o_v[:, None]
         tl.store(p_ht, b_h.to(p_ht.dtype.element_ty), mask=mask_h)
 
 
@@ -132,7 +139,7 @@ def fused_recurrent_dplr_delta_rule_fwd(
     output_final_state: bool = False,
     reverse: bool = False,
     offsets: Optional[torch.LongTensor] = None,
-    head_first: bool = True
+    head_first: bool = True,
 ):
     if head_first:
         B, H, T, K, V = *k.shape, v.shape[-1]
@@ -148,7 +155,9 @@ def fused_recurrent_dplr_delta_rule_fwd(
         ht = None
     o = torch.empty_like(v)
 
-    def grid(meta): return (triton.cdiv(V, meta['BV']), N * H)
+    def grid(meta):
+        return (triton.cdiv(V, meta["BV"]), N * H)
+
     fused_recurrent_dplr_delta_rule_fwd_kernel[grid](
         q,
         k,
@@ -168,13 +177,12 @@ def fused_recurrent_dplr_delta_rule_fwd(
         V=V,
         BK=BK,
         REVERSE=reverse,
-        HEAD_FIRST=head_first
+        HEAD_FIRST=head_first,
     )
     return o, ht
 
 
 class FusedRecurrentDPLRDeltaRuleFunction(torch.autograd.Function):
-
     @staticmethod
     @input_guard
     @autocast_custom_fwd
@@ -191,7 +199,7 @@ class FusedRecurrentDPLRDeltaRuleFunction(torch.autograd.Function):
         output_final_state: bool = False,
         reverse: bool = False,
         offsets: Optional[torch.LongTensor] = None,
-        head_first: bool = False
+        head_first: bool = False,
     ):
         o, ht = fused_recurrent_dplr_delta_rule_fwd(
             q=q,
@@ -205,7 +213,7 @@ class FusedRecurrentDPLRDeltaRuleFunction(torch.autograd.Function):
             output_final_state=output_final_state,
             reverse=reverse,
             offsets=offsets,
-            head_first=head_first
+            head_first=head_first,
         )
         return o, ht
 
@@ -232,7 +240,7 @@ def fused_recurrent_dplr_delta_rule(
     output_final_state: bool = False,
     reverse: bool = False,
     cu_seqlens: Optional[torch.Tensor] = None,
-    head_first: bool = False
+    head_first: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     r"""
     This function computes the recurrence S_t = S_t @ (I + a_t b_t^T) + v_t k_t^T in a recurrent manner.
@@ -268,13 +276,22 @@ def fused_recurrent_dplr_delta_rule(
     """
     if cu_seqlens is not None:
         if q.shape[0] != 1:
-            raise ValueError(f"The batch size is expected to be 1 rather than {q.shape[0]} when using `cu_seqlens`."
-                             f"Please flatten variable-length inputs before processing.")
+            raise ValueError(
+                f"The batch size is expected to be 1 rather than {q.shape[0]} when using `cu_seqlens`."
+                f"Please flatten variable-length inputs before processing."
+            )
         if head_first:
-            raise RuntimeError("Sequences with variable lengths are not supported for head-first mode")
-        if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
-            raise ValueError(f"The number of initial states is expected to be equal to the number of input sequences, "
-                             f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}.")
+            raise RuntimeError(
+                "Sequences with variable lengths are not supported for head-first mode"
+            )
+        if (
+            initial_state is not None
+            and initial_state.shape[0] != len(cu_seqlens) - 1
+        ):
+            raise ValueError(
+                f"The number of initial states is expected to be equal to the number of input sequences, "
+                f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."
+            )
     if scale is None:
         scale = q.shape[-1] ** -0.5
     else:
@@ -291,6 +308,6 @@ def fused_recurrent_dplr_delta_rule(
         output_final_state,
         reverse,
         cu_seqlens,
-        head_first
+        head_first,
     )
     return o, final_state

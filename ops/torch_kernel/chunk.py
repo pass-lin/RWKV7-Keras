@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
@@ -24,7 +23,7 @@ from ops.torch_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
 from ops.torch_kernel.wy_fast_fwd import fwd_prepare_wy_repr
 
 
-@triton.jit(do_not_specialize=['T'])
+@triton.jit(do_not_specialize=["T"])
 def chunk_rwkv6_fwd_cumsum_kernel(
     s,
     oi,
@@ -42,37 +41,94 @@ def chunk_rwkv6_fwd_cumsum_kernel(
     i_s, i_t, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     i_b, i_h = i_bh // H, i_bh % H
     if USE_OFFSETS:
-        i_n, i_t = tl.load(indices + i_t * 2).to(tl.int32), tl.load(indices + i_t * 2 + 1).to(tl.int32)
-        bos, eos = tl.load(offsets + i_n).to(tl.int32), tl.load(offsets + i_n + 1).to(tl.int32)
+        i_n, i_t = (
+            tl.load(indices + i_t * 2).to(tl.int32),
+            tl.load(indices + i_t * 2 + 1).to(tl.int32),
+        )
+        bos, eos = (
+            tl.load(offsets + i_n).to(tl.int32),
+            tl.load(offsets + i_n + 1).to(tl.int32),
+        )
         T = eos - bos
     else:
         bos, eos = i_b * T, i_b * T + T
 
     o_i = tl.arange(0, BT)
-    m_i = tl.where(o_i[:, None] >= o_i[None, :], 1., 0.).to(tl.float32)
-    m_e = tl.where(o_i[:, None] > o_i[None, :], 1., 0.).to(tl.float32)
+    m_i = tl.where(o_i[:, None] >= o_i[None, :], 1.0, 0.0).to(tl.float32)
+    m_e = tl.where(o_i[:, None] > o_i[None, :], 1.0, 0.0).to(tl.float32)
 
     if HEAD_FIRST:
-        p_s = tl.make_block_ptr(s + i_bh * T*S, (T, S), (S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
-        p_oi = tl.make_block_ptr(oi + i_bh * T*S, (T, S), (S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
-        p_oe = tl.make_block_ptr(oe + i_bh * T*S, (T, S), (S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
+        p_s = tl.make_block_ptr(
+            s + i_bh * T * S,
+            (T, S),
+            (S, 1),
+            (i_t * BT, i_s * BS),
+            (BT, BS),
+            (1, 0),
+        )
+        p_oi = tl.make_block_ptr(
+            oi + i_bh * T * S,
+            (T, S),
+            (S, 1),
+            (i_t * BT, i_s * BS),
+            (BT, BS),
+            (1, 0),
+        )
+        p_oe = tl.make_block_ptr(
+            oe + i_bh * T * S,
+            (T, S),
+            (S, 1),
+            (i_t * BT, i_s * BS),
+            (BT, BS),
+            (1, 0),
+        )
     else:
-        p_s = tl.make_block_ptr(s + (bos * H + i_h) * S, (T, S), (H*S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
-        p_oi = tl.make_block_ptr(oi + (bos * H + i_h) * S, (T, S), (H*S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
-        p_oe = tl.make_block_ptr(oe + (bos * H + i_h) * S, (T, S), (H*S, 1), (i_t * BT, i_s * BS), (BT, BS), (1, 0))
+        p_s = tl.make_block_ptr(
+            s + (bos * H + i_h) * S,
+            (T, S),
+            (H * S, 1),
+            (i_t * BT, i_s * BS),
+            (BT, BS),
+            (1, 0),
+        )
+        p_oi = tl.make_block_ptr(
+            oi + (bos * H + i_h) * S,
+            (T, S),
+            (H * S, 1),
+            (i_t * BT, i_s * BS),
+            (BT, BS),
+            (1, 0),
+        )
+        p_oe = tl.make_block_ptr(
+            oe + (bos * H + i_h) * S,
+            (T, S),
+            (H * S, 1),
+            (i_t * BT, i_s * BS),
+            (BT, BS),
+            (1, 0),
+        )
     # [BT, BS]
     b_s = tl.load(p_s, boundary_check=(0, 1)).to(tl.float32)
     b_oi = tl.dot(m_i, b_s)
     b_oe = tl.dot(m_e, b_s)
-    tl.store(p_oi, b_oi.to(p_oi.dtype.element_ty, fp_downcast_rounding="rtne"), boundary_check=(0, 1))
-    tl.store(p_oe, b_oe.to(p_oe.dtype.element_ty, fp_downcast_rounding="rtne"), boundary_check=(0, 1))
-    
+    tl.store(
+        p_oi,
+        b_oi.to(p_oi.dtype.element_ty, fp_downcast_rounding="rtne"),
+        boundary_check=(0, 1),
+    )
+    tl.store(
+        p_oe,
+        b_oe.to(p_oe.dtype.element_ty, fp_downcast_rounding="rtne"),
+        boundary_check=(0, 1),
+    )
+
+
 def chunk_rwkv6_fwd_cumsum(
     g: torch.Tensor,
     chunk_size: int,
     offsets: Optional[torch.Tensor] = None,
     indices: Optional[torch.Tensor] = None,
-    head_first: bool = True
+    head_first: bool = True,
 ) -> torch.Tensor:
     if head_first:
         B, H, T, S = g.shape
@@ -81,22 +137,21 @@ def chunk_rwkv6_fwd_cumsum(
     BT = chunk_size
     NT = triton.cdiv(T, BT) if offsets is None else len(indices)
 
-    gi, ge = torch.empty_like(g, dtype=torch.float), torch.empty_like(g, dtype=torch.float)
-    def grid(meta): return (triton.cdiv(meta['S'], meta['BS']), NT, B * H)
+    gi, ge = (
+        torch.empty_like(g, dtype=torch.float),
+        torch.empty_like(g, dtype=torch.float),
+    )
+
+    def grid(meta):
+        return (triton.cdiv(meta["S"], meta["BS"]), NT, B * H)
+
     # keep cummulative normalizer in fp32
     chunk_rwkv6_fwd_cumsum_kernel[grid](
-        g,
-        gi,
-        ge,
-        offsets,
-        indices,
-        T=T,
-        H=H,
-        S=S,
-        BT=BT,
-        HEAD_FIRST=head_first
+        g, gi, ge, offsets, indices, T=T, H=H, S=S, BT=BT, HEAD_FIRST=head_first
     )
     return gi, ge
+
+
 def chunk_dplr_fwd(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -110,11 +165,13 @@ def chunk_dplr_fwd(
     offsets: Optional[torch.LongTensor] = None,
     indices: Optional[torch.LongTensor] = None,
     head_first: bool = True,
-    chunk_size: int = 64
+    chunk_size: int = 64,
 ):
     T = q.shape[2] if head_first else q.shape[1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
-    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT, offsets=offsets, indices=indices, head_first=head_first)
+    gi, ge = chunk_rwkv6_fwd_cumsum(
+        gk, BT, offsets=offsets, indices=indices, head_first=head_first
+    )
 
     A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_fwd_intra_dplr_fn(
         q=q,
@@ -127,7 +184,7 @@ def chunk_dplr_fwd(
         offsets=offsets,
         indices=indices,
         chunk_size=BT,
-        head_first=head_first
+        head_first=head_first,
     )
     del ge
 
@@ -141,7 +198,7 @@ def chunk_dplr_fwd(
         offsets=offsets,
         indices=indices,
         head_first=head_first,
-        chunk_size=BT
+        chunk_size=BT,
     )
     del A_ab, A_ak
     h, v_new, final_state = chunk_dplr_fwd_h(
@@ -155,7 +212,7 @@ def chunk_dplr_fwd(
         output_final_state=output_final_state,
         offsets=offsets,
         head_first=head_first,
-        chunk_size=BT
+        chunk_size=BT,
     )
     del u, kg, bg, gi
 
@@ -169,7 +226,7 @@ def chunk_dplr_fwd(
         offsets=offsets,
         indices=indices,
         head_first=head_first,
-        chunk_size=BT
+        chunk_size=BT,
     )
     del v_new, h, A_qk, A_qb
 
@@ -177,7 +234,6 @@ def chunk_dplr_fwd(
 
 
 class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
-
     @staticmethod
     @input_guard
     @autocast_custom_fwd
@@ -193,7 +249,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
         initial_state: torch.Tensor,
         output_final_state: bool,
         offsets: Optional[torch.LongTensor] = None,
-        head_first: bool = True
+        head_first: bool = True,
     ):
         chunk_size = 16
 
@@ -201,7 +257,11 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
         # for example, if the passed `offsets` is [0, 100, 356] and `chunk_size` is 64,
         # then there are 2 and 4 chunks in the 1st and 2nd sequences respectively, and `indices` will be
         # [[0, 0], [0, 1], [1, 0], [1, 1], [1, 2], [1, 3]]
-        indices = prepare_chunk_indices(offsets, chunk_size) if offsets is not None else None
+        indices = (
+            prepare_chunk_indices(offsets, chunk_size)
+            if offsets is not None
+            else None
+        )
 
         o, final_state = chunk_dplr_fwd(
             q=q,
@@ -216,7 +276,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             offsets=offsets,
             indices=indices,
             head_first=head_first,
-            chunk_size=chunk_size
+            chunk_size=chunk_size,
         )
         ctx.save_for_backward(q, k, v, a, b, gk, initial_state)
         ctx.head_first = head_first
@@ -229,11 +289,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
     @staticmethod
     @input_guard
     @autocast_custom_bwd
-    def backward(
-        ctx,
-        do: torch.Tensor,
-        dht: torch.Tensor
-    ):
+    def backward(ctx, do: torch.Tensor, dht: torch.Tensor):
         q, k, v, a, b, gk, initial_state = ctx.saved_tensors
         BT = ctx.chunk_size
         head_first = ctx.head_first
@@ -242,7 +298,9 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
         scale = ctx.scale
 
         # ******* start recomputing everything, otherwise i believe the gpu memory will be exhausted *******
-        gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT, offsets=offsets, indices=indices, head_first=head_first)
+        gi, ge = chunk_rwkv6_fwd_cumsum(
+            gk, BT, offsets=offsets, indices=indices, head_first=head_first
+        )
 
         A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_fwd_intra_dplr_fn(
             q=q,
@@ -255,7 +313,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             offsets=offsets,
             indices=indices,
             chunk_size=BT,
-            head_first=head_first
+            head_first=head_first,
         )
         w, u, A_ab_inv = fwd_prepare_wy_repr(
             ag=ag,
@@ -265,7 +323,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             offsets=offsets,
             indices=indices,
             head_first=head_first,
-            chunk_size=BT
+            chunk_size=BT,
         )
         del A_ab
         h, v_new, _ = chunk_dplr_fwd_h(
@@ -278,7 +336,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             initial_state=initial_state,
             offsets=offsets,
             head_first=head_first,
-            chunk_size=BT
+            chunk_size=BT,
         )
         del u
         # ******* end of recomputation *******
@@ -294,7 +352,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             offsets=offsets,
             indices=indices,
             head_first=head_first,
-            chunk_size=BT
+            chunk_size=BT,
         )
 
         dh, dh0, dv_new = chunk_dplr_bwd_dhu(
@@ -308,7 +366,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             dv=dv_new_intra,
             offsets=offsets,
             head_first=head_first,
-            chunk_size=BT
+            chunk_size=BT,
         )
 
         dv = chunk_dplr_bwd_dv(
@@ -319,7 +377,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             offsets=offsets,
             indices=indices,
             head_first=head_first,
-            chunk_size=BT
+            chunk_size=BT,
         )
         del A_qk
 
@@ -353,7 +411,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             offsets=offsets,
             indices=indices,
             head_first=head_first,
-            chunk_size=BT
+            chunk_size=BT,
         )
         del A_ak
 
@@ -377,10 +435,22 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             scale=scale,
             head_first=head_first,
             offsets=offsets,
-            indices=indices
+            indices=indices,
         )
 
-        return dq.to(q), dk.to(k), dv.to(v), da.to(a), db.to(b), dgk.to(gk), None, dh0, None, None, None
+        return (
+            dq.to(q),
+            dk.to(k),
+            dv.to(v),
+            da.to(a),
+            db.to(b),
+            dgk.to(gk),
+            None,
+            dh0,
+            None,
+            None,
+            None,
+        )
 
 
 @torch.compiler.disable
@@ -395,7 +465,7 @@ def chunk_dplr_delta_rule(
     initial_state: Optional[torch.Tensor] = None,
     output_final_state: bool = False,
     cu_seqlens: Optional[torch.LongTensor] = None,
-    head_first: bool = False
+    head_first: bool = False,
 ):
     r"""
     Args:
@@ -439,13 +509,22 @@ def chunk_dplr_delta_rule(
 
     if cu_seqlens is not None:
         if q.shape[0] != 1:
-            raise ValueError(f"The batch size is expected to be 1 rather than {q.shape[0]} when using `cu_seqlens`."
-                             f"Please flatten variable-length inputs before processing.")
+            raise ValueError(
+                f"The batch size is expected to be 1 rather than {q.shape[0]} when using `cu_seqlens`."
+                f"Please flatten variable-length inputs before processing."
+            )
         if head_first:
-            raise RuntimeError("Sequences with variable lengths are not supported for head-first mode")
-        if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
-            raise ValueError(f"The number of initial states is expected to be equal to the number of input sequences, "
-                             f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}.")
+            raise RuntimeError(
+                "Sequences with variable lengths are not supported for head-first mode"
+            )
+        if (
+            initial_state is not None
+            and initial_state.shape[0] != len(cu_seqlens) - 1
+        ):
+            raise ValueError(
+                f"The number of initial states is expected to be equal to the number of input sequences, "
+                f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."
+            )
     scale = k.shape[-1] ** -0.5 if scale is None else scale
     o, final_state = ChunkDPLRDeltaRuleFunction.apply(
         q,
@@ -458,6 +537,6 @@ def chunk_dplr_delta_rule(
         initial_state,
         output_final_state,
         cu_seqlens,
-        head_first
+        head_first,
     )
     return o, final_state
