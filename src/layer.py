@@ -2,36 +2,7 @@ import keras
 from keras import ops
 from keras.layers import Dense,Layer
 from standard_rwkv.rwkv7_layer import RWKV7_OP
-class GroupNorm(Layer):
-    def __init__(self,hidden_size,num_heads,epsilon=64*1e-5,name="group_norm",**kwargs):
-        super(GroupNorm,self).__init__(name=name,**kwargs)
 
-        self.hidden_size = hidden_size
-        self.head_size = hidden_size //num_heads
-        self.num_heads = num_heads
-        self.epsilon =epsilon
-        assert hidden_size % num_heads == 0
-
-    def call(self,inputs,shape):
-        B,T,C = shape
-        x = ops.reshape(inputs,(B,T,self.num_heads,self.head_size))
-        x =  ops.reshape(self.scale,(1,1,self.num_heads,self.head_size)) * x +  ops.reshape(self.offset,(1,1,self.num_heads,self.head_size))
-        o = ops.reshape(x,(B,T,C))
-        return o
-    def compute_output_shape(self, input_shape):
-        return input_shape
-    def build(self, input_shape):
-        super().build(input_shape)
-        self.scale = self.add_weight(shape=(self.num_heads,self.head_size))
-        self.offset = self.add_weight(shape=(self.num_heads,self.head_size))
-    def get_config(self):
-        config = {
-            'num_heads':self.num_heads,
-            'hidden_size':self.hidden_size,
-            'epsilon':self.epsilon
-        }
-        base_config = super().get_config()
-        return dict(list(base_config.items()) + list(config.items()))
 class TimeShift(Layer):
     def __init__(self,name="time_shift"):
         super(TimeShift, self).__init__(name=name)
@@ -67,7 +38,8 @@ class RWKV7_ChannelMix(Layer):
         self.time_shift = TimeShift()
         self.key = Dense(self.dim_ffn,activation="relu",use_bias=False,name="dense_k")
         self.value = Dense(input_shape[-1],use_bias=False,name="dense_v")
-        
+        self.key.build(input_shape)
+        self.value.build([None,None,self.dim_ffn])
     def get_config(self):
         config = {
             'dim_ffn':self.dim_ffn,
@@ -93,11 +65,11 @@ class RWKV7_TimeMix(Layer):
         assert self.hidden_size % self.n_head == 0
     def build(self, input_shape):
         super().build(input_shape)
-        if isinstance(input_shape,list):
+        if isinstance(input_shape[0],list):
             input_shape = input_shape[0]
         H = self.n_head
         N = self.head_size
-        C = input_shape[-1]
+        B , T, C = input_shape
 
         self.x_r = self.add_weight(shape=(1,1,C), name="x_r")
         self.x_w = self.add_weight(shape=(1,1,C), name="x_w")
@@ -130,9 +102,20 @@ class RWKV7_TimeMix(Layer):
         self.key = Dense(C, use_bias=False)
         self.value = Dense(C, use_bias=False)
         self.output = Dense(C, use_bias=False)
-        self.ln_x = GroupNorm(C, H,  epsilon=64e-5)
+        self.ln_x = keras.layers.GroupNormalization(groups = H,epsilon=64e-5)
+        
+        self.receptance.build(input_shape)
+        self.value.build(input_shape)
+        self.key.build(input_shape)
+        self.output.build(input_shape)
+        self.ln_x.build((B * T, C))
 
     def call(self,x,v_first=None,mask=None):
+        if mask is not None:
+            if ops.ndim(mask)==2:
+                mask = mask[...,None]
+            mask = ops.cast(mask,x.dtype)
+            x*=mask
         B, T, C = ops.shape(x)
         H = self.n_head
         xx = self.time_shift(x) - x
@@ -157,14 +140,17 @@ class RWKV7_TimeMix(Layer):
         g = ops.sigmoid(xg @ self.g1) @ self.g2
 
         kk = k * self.k_k
-        kk = ops.normalize(ops.reshape(kk,(B,T,H,-1)), axis=-1, order=2, epsilon=1e-12)
+
+        kk = self.normalize(ops.reshape(kk,(B,T,H,-1)))
         kk = ops.reshape(kk,(B,T,C))
-
+        
         k = k * (1 + (a-1) * self.k_a)
-
+        if mask is not None:
+            w = w*mask + 1-mask
         x = RWKV7_OP(r, w, k, v, -kk, kk*a)
-        x = self.ln_x(ops.reshape(x,(B * T, C)),shape = ops.shape(x))
-
+        
+        x = ops.reshape(self.ln_x(ops.reshape(x,(B * T, C))),ops.shape(x))
+        
         x = ops.reshape(x,(B, T, C))
         r = ops.reshape(r,(B,T,H,-1))
         k = ops.reshape(k,(B,T,H,-1))
@@ -175,6 +161,17 @@ class RWKV7_TimeMix(Layer):
         x = x + ops.reshape(rwkv,(B,T,C))
         x = self.output(x * g)
         return x, v_first
+    def normalize(
+        self,
+        z,
+        p = 2,
+        dim = -1,
+        eps: float = 1e-12,
+    ):
+        #F.normalize like api
+        denom = ops.norm(z,ord=p, axis=dim, keepdims=True)
+        denom = ops.maximum(denom,1e-12)
+        return z/denom
     
     def get_config(self):
         config = {
@@ -184,6 +181,59 @@ class RWKV7_TimeMix(Layer):
             'mv_lora':self.mv_lora,
             'aaa_lora':self.aaa_lora,
             'decay_lora':self.decay_lora,
+        }
+        base_config = super().get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+class RWKV7_Block(Layer):
+    def __init__(self,hidden_size,
+                 head_size,
+                 dim_ffn,
+                 gate_lora = 128,
+                 mv_lora = 32,
+                 aaa_lora = 64,
+                 decay_lora = 64,
+                 use_initial_norm = False,
+                 **kwargs):
+        super().__init__(**kwargs)
+        self.head_size = head_size
+        self.hidden_size = hidden_size
+        self.gate_lora = gate_lora
+        self.mv_lora = mv_lora
+        self.aaa_lora = aaa_lora
+        self.decay_lora = decay_lora
+        self.dim_ffn = dim_ffn
+        self.use_initial_norm
+    def build(self, input_shape):
+        super().build(input_shape)
+        if self.use_initial_norm:
+            self.ln0 = keras.layers.LayerNormalization(epsilon = 1e-5,
+                                                       name = "init_norm")
+        self.ln1 = keras.layers.LayerNormalization(epsilon = 1e-5,
+                                                   name = "att_norm")
+        self.ln2 = keras.layers.LayerNormalization(epsilon = 1e-5,
+                                                   name = "ffn_norm")
+        self.att = RWKV7_TimeMix(
+                         self.hidden_size,
+                         self.head_size,
+                         self.gate_lora,
+                         self.mv_lora,
+                         self.aaa_lora,
+                         self.decay_lora ,
+                         name = "RWKV_TIME_MIX"
+                     )
+        
+        self.ffn = RWKV7_ChannelMix(self.dim_ffn,name = "RWKV_CMIX")
+    
+    def get_config(self):
+        config = {
+            'hidden_size':self.hidden_size,
+            'head_size':self.head_size,
+            'gate_lora':self.gate_lora,
+            'mv_lora':self.mv_lora,
+            'aaa_lora':self.aaa_lora,
+            'decay_lora':self.decay_lora,
+            "dim_ffn":self.dim_ffn,
+            "use_initial_norm":self.use_initial_norm,
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))

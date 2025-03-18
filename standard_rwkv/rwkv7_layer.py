@@ -49,7 +49,7 @@ DTYPE = torch.bfloat16
 args.head_size_a = 64 # don't change
 HEAD_SIZE = args.head_size_a
 
-USE_CUDA_KERNEL = False # False => UNOPTIMIZED, VERY SLOW
+USE_KERNEL = "native" # False => UNOPTIMIZED, VERY SLOW
 
 MyModule = torch.jit.ScriptModule
 MyFunction = torch.jit.script_method
@@ -59,7 +59,7 @@ MyStatic = torch.jit.script
 # CUDA Kernel
 ########################################################################################################
 
-if USE_CUDA_KERNEL:
+if USE_KERNEL=="CUDA":
 
     from torch.utils.cpp_extension import load
 
@@ -240,10 +240,13 @@ class RWKV_Tmix_x070(nn.Module):
         g = torch.sigmoid(xg @ self.g1) @ self.g2
 
         kk = k * self.k_k
+        
         kk = F.normalize(kk.view(B,T,H,-1), dim=-1, p=2.0).view(B,T,C)
-        k = k * (1 + (a-1) * self.k_a)
 
+        k = k * (1 + (a-1) * self.k_a)
+        
         x = RWKV7_OP(r, w, k, v, -kk, kk*a)
+        
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
         
         x = x + ((r.view(B,T,H,-1)*k.view(B,T,H,-1)*self.r_k).sum(dim=-1, keepdim=True) * v.view(B,T,H,-1)).view(B,T,C)
