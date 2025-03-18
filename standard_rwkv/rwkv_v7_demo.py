@@ -2,10 +2,15 @@
 # The RWKV Language Model - https://github.com/BlinkDL/RWKV-LM
 ########################################################################################################
 
-import torch, types, os, gc, math, json
+import json
+import math
+import types
+
 import numpy as np
+import torch
 import torch.nn as nn
 from torch.nn import functional as F
+
 np.set_printoptions(precision=4, suppress=True, linewidth=200)
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.allow_tf32 = True
@@ -42,6 +47,7 @@ elif '421M' in MODEL_PATH:
 
 args.vocab_size = 50304 # "pile" model: 50277 padded to 50304
 from tokenizers import Tokenizer
+
 tokenizer = Tokenizer.from_file("../RWKV-v4neo/20B_tokenizer.json")
 
 # DTYPE = torch.bfloat16
@@ -64,7 +70,7 @@ if USE_CUDA_KERNEL:
 
     from torch.utils.cpp_extension import load
 
-    load(name="wkv7", sources=["standard_rwkv/cuda/wkv7_op.cpp", f"standard_rwkv/cuda/wkv7.cu"], is_python_module=False,
+    load(name="wkv7", sources=["standard_rwkv/cuda/wkv7_op.cpp", "standard_rwkv/cuda/wkv7.cu"], is_python_module=False,
                         verbose=True, extra_cuda_cflags=["-res-usage", "--use_fast_math", "-O3", "-Xptxas -O3", "--extra-device-vectorization", f"-D_N_={HEAD_SIZE}"])
     class WKV_7(torch.autograd.Function):
         @staticmethod
@@ -335,7 +341,7 @@ with torch.no_grad():
 
     ########################################################################################################
 
-    with open(f"misc/lambada_test.jsonl", "r", encoding="utf-8") as f:
+    with open("misc/lambada_test.jsonl", "r", encoding="utf-8") as f:
         todo = [json.loads(line) for line in f]
         todo = [[doc['text'].rsplit(' ', 1)[0], " " + doc['text'].rsplit(' ', 1)[1]] for doc in todo]
 

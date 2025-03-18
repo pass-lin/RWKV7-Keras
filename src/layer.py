@@ -1,7 +1,7 @@
 import keras
 from keras import ops
 from keras.layers import Dense,Layer
-from standard_rwkv.rwkv7_layer import RWKV7_OP
+from ops.native_keras_op import RWKV7_OP
 
 class TimeShift(Layer):
     def __init__(self,name="time_shift"):
@@ -148,13 +148,13 @@ class RWKV7_TimeMix(Layer):
         if mask is not None:
             w = w*mask + 1-mask
         #N = self.head_size
-        #r = ops.reshape(r,(B, T, C // self.head_size, self.head_size))
-        #k = ops.reshape(k,(B, T, C // self.head_size, self.head_size))
-        #v = ops.reshape(v,(B, T, C // self.head_size, self.head_size))
-        #a = ops.reshape(a,(B, T, C // self.head_size, self.head_size))
-        #kk = ops.reshape(kk,(B, T, C // self.head_size, self.head_size))
         
-        x = RWKV7_OP(r, w, k, v, -kk, kk*a)
+        x = RWKV7_OP(ops.reshape(r,(B, T, self.n_head, self.head_size)),
+                     ops.reshape(w,(B, T, self.n_head, self.head_size)),
+                     ops.reshape(k,(B, T, self.n_head, self.head_size)),
+                     ops.reshape(v,(B, T, self.n_head, self.head_size)),
+                     ops.reshape(-kk,(B, T, self.n_head, self.head_size)),
+                     ops.reshape(kk*a,(B, T, self.n_head, self.head_size)))
         
         x = ops.reshape(self.ln_x(ops.reshape(x,(B * T, C))),ops.shape(x))
         

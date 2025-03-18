@@ -9,7 +9,8 @@ import triton
 import triton.language as tl
 
 from ops.torch_kernel.math import exp
-from ops.torch_kernel.utils import device_capacity, use_cuda_graph
+from ops.torch_kernel.utils import device_capacity
+from ops.torch_kernel.utils import use_cuda_graph
 
 
 @triton.heuristics({

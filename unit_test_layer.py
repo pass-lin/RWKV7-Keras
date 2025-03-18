@@ -1,15 +1,14 @@
 import os
+
 os.environ["KERAS_BACKEND"] = 'torch'
 os.environ['CUDA_VISIBLE_DEVICES'] = "1" 
+
 from keras import ops
-from src.layer import *
 from src.convertor import *
+from src.layer import *
 from standard_rwkv.rwkv7_layer import *
-import torch.nn.init as init
-args.dim_att = 64
-args.n_embd = 64
-args.head_size_a = 4
-args.dim_ffn = 256
+
+
 keras.config.set_dtype_policy("bfloat16")
 x = torch.randn(1, 8, args.n_embd).cuda()/10
 x = ops.cast(x,dtype="bfloat16")

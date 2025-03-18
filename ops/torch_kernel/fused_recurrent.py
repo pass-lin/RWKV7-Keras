@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional, Tuple
+from typing import Optional
+from typing import Tuple
 
 import torch
 import triton
 import triton.language as tl
 
 from ops.torch_kernel.math import exp
-from ops.torch_kernel.utils import (autocast_custom_bwd, autocast_custom_fwd, input_guard,
-                       use_cuda_graph)
+from ops.torch_kernel.utils import autocast_custom_bwd
+from ops.torch_kernel.utils import autocast_custom_fwd
+from ops.torch_kernel.utils import input_guard
+from ops.torch_kernel.utils import use_cuda_graph
 
 
 @triton.heuristics({

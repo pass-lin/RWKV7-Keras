@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2024-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional, Tuple
+from typing import Optional
+from typing import Tuple
 
 import torch
 import triton
 import triton.language as tl
 
-from ops.torch_kernel import fused_recurrent_dplr_delta_rule
-from ops.torch_kernel.utils import input_guard, use_cuda_graph
-from ops.torch_kernel.math import exp
 from ops.torch_kernel import chunk_dplr_delta_rule
+from ops.torch_kernel import fused_recurrent_dplr_delta_rule
+from ops.torch_kernel.math import exp
+from ops.torch_kernel.utils import input_guard
+from ops.torch_kernel.utils import use_cuda_graph
+
 
 @torch.compile(fullgraph=True)
 def cal_log_w(w: torch.Tensor) -> torch.Tensor:

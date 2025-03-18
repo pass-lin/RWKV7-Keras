@@ -4,11 +4,17 @@ import contextlib
 import functools
 import os
 from functools import lru_cache
-from typing import Any, Callable, Dict, Literal, Optional, Tuple
+from typing import Any
+from typing import Callable
+from typing import Dict
+from typing import Literal
+from typing import Optional
+from typing import Tuple
 
 import torch
 import triton
 from packaging import version
+
 
 def tensor_cache(
     fn: Callable[..., torch.Tensor]

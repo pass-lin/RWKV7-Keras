@@ -8,12 +8,13 @@ def RWKV7_OP(r, w, k, v, a, b):
     v = ops.cast(v,"float32")
     a = ops.cast(a,"float32")
     b = ops.cast(b,"float32")
-    w = ops.cast(ops.reshape(w,(B, T, H, N)),"float32")
+    w = ops.cast(w,"float32")
     w = ops.exp(-ops.exp(w))
     out = ops.zeros((B, T, H, N),  dtype="float32")
     state = ops.zeros((B, H, N, N),  dtype="float32")
     
     def  step(t,inputs):
+        
         state,out = inputs
         kk = ops.reshape(k[:, t, :],(B, H, 1, N))
         rr = ops.reshape(r[:, t, :],(B, H, N, 1))
@@ -24,8 +25,8 @@ def RWKV7_OP(r, w, k, v, a, b):
         out= ops.slice_update(out,
                               [0,t,0,0],
                               ops.reshape((state @ rr),(B, 1,H, N)))
-        return state,out
-    state,out = ops.fori_loop(0,T,step,(state,out))
-
+        return [state,out]
+    state,out = ops.fori_loop(0,T ,step,[state,out])
+    
 
     return ops.cast(ops.reshape(out,(B, T, C)),DTYPE)

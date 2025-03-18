@@ -49,7 +49,7 @@ DTYPE = torch.bfloat16
 args.head_size_a = 64 # don't change
 HEAD_SIZE = args.head_size_a
 
-USE_KERNEL = False # False => UNOPTIMIZED, VERY SLOW
+USE_KERNEL = "native" # False => UNOPTIMIZED, VERY SLOW
 
 MyModule = torch.jit.ScriptModule
 MyFunction = torch.jit.script_method
@@ -59,7 +59,7 @@ MyStatic = torch.jit.script
 # CUDA Kernel
 ########################################################################################################
 
-if USE_KERNEL:
+if USE_KERNEL=="CUDA":
 
     from torch.utils.cpp_extension import load
 
@@ -95,7 +95,7 @@ if USE_KERNEL:
 else:
 
     def RWKV7_OP(r, w, k, v, a, b):
-        B, T, C = r.size()
+        B, T, C = r.size() 
         H = C // HEAD_SIZE
         N = HEAD_SIZE
         r = r.view(B, T, H, N).float()
@@ -108,15 +108,16 @@ else:
         state = torch.zeros((B, H, N, N), device=r.device, dtype=torch.float)
 
         for t in range(T):
+            
             kk = k[:, t, :].view(B, H, 1, N)
             rr = r[:, t, :].view(B, H, N, 1)
             vv = v[:, t, :].view(B, H, N, 1)
             aa = a[:, t, :].view(B, H, N, 1)
             bb = b[:, t, :].view(B, H, 1, N)
             state = state * w[: , t, :, None, :] + state @ aa @ bb + vv @ kk
-            
+
             out[:, t, :] = (state @ rr).view(B, H, N)
-        
+
         return out.view(B, T, C).to(dtype=DTYPE)
 
 ########################################################################################################

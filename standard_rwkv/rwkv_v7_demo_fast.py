@@ -7,9 +7,15 @@
 ########################################################################################################
 
 import numpy as np
+
 np.set_printoptions(precision=4, suppress=True, linewidth=200)
-import types, torch, copy, time
+import copy
+import time
+import types
 from typing import List
+
+import torch
+
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -17,7 +23,6 @@ torch.backends.cuda.matmul.allow_tf32 = True
 # torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
 torch._C._jit_set_autocast_mode(False)
 
-import torch.nn as nn
 from torch.nn import functional as F
 
 MyModule = torch.jit.ScriptModule
@@ -62,9 +67,10 @@ TOP_P = 0.0
 DTYPE = torch.half
 
 from torch.utils.cpp_extension import load
+
 HEAD_SIZE = args.head_size
 
-load(name="wkv7s", sources=["cuda/wkv7s_op.cpp", f"cuda/wkv7s.cu"], is_python_module=False,
+load(name="wkv7s", sources=["cuda/wkv7s_op.cpp", "cuda/wkv7s.cu"], is_python_module=False,
                     verbose=True, extra_cuda_cflags=["-res-usage", "--use_fast_math", "-O3", "-Xptxas -O3", "--extra-device-vectorization", f"-D_N_={HEAD_SIZE}"])
 class WKV_7(torch.autograd.Function):
     @staticmethod
@@ -301,6 +307,7 @@ def sample_logits(logits, temperature:float=1.0, top_p:float=1.0, top_k:int=0):
 ########################################################################################################
 
 from tokenizers import Tokenizer
+
 tokenizer = Tokenizer.from_file("../RWKV-v4neo/20B_tokenizer.json")
 
 print(f'\nUsing CUDA {str(DTYPE).replace("torch.","")}. Loading {args.MODEL_NAME} ...')
@@ -358,8 +365,10 @@ print('\n')
 
 ########################################################################################################
 
-import json, math
-with open(f"misc/lambada_test.jsonl", "r", encoding="utf-8") as f:
+import json
+import math
+
+with open("misc/lambada_test.jsonl", "r", encoding="utf-8") as f:
     todo = [json.loads(line) for line in f]
     todo = [[doc['text'].rsplit(' ', 1)[0], " " + doc['text'].rsplit(' ', 1)[1]] for doc in todo]
 

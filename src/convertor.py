@@ -4,7 +4,6 @@ Created on Tue Mar 18 18:20:48 2025
 
 @author: 路过的小林
 """
-from keras import ops
 def convert_cmix(my_chnnal_mix,standard_chnnal_mix):
     key_weights = standard_chnnal_mix.key.weight.detach().cpu().T
     value_weights = standard_chnnal_mix.value.weight.detach().cpu().T

@@ -6,21 +6,24 @@ from typing import Optional
 
 import torch
 import triton
+import triton.language as tl
 
-from ops.torch_kernel.utils import prepare_chunk_indices
-from ops.torch_kernel.chunk_A_bwd import \
-    chunk_dplr_bwd_dqk_intra
-from ops.torch_kernel.chunk_A_fwd import \
-    chunk_fwd_intra_dplr_fn
+from ops.torch_kernel.chunk_A_bwd import chunk_dplr_bwd_dqk_intra
+from ops.torch_kernel.chunk_A_fwd import chunk_fwd_intra_dplr_fn
 from ops.torch_kernel.chunk_h_bwd import chunk_dplr_bwd_dhu
 from ops.torch_kernel.chunk_h_fwd import chunk_dplr_fwd_h
-from ops.torch_kernel.chunk_o_bwd import (
-    chunk_dplr_bwd_dAu, chunk_dplr_bwd_dv, chunk_dplr_bwd_o)
+from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_dAu
+from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_dv
+from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_o
 from ops.torch_kernel.chunk_o_fwd import chunk_dplr_fwd_o
+from ops.torch_kernel.utils import autocast_custom_bwd
+from ops.torch_kernel.utils import autocast_custom_fwd
+from ops.torch_kernel.utils import input_guard
+from ops.torch_kernel.utils import prepare_chunk_indices
 from ops.torch_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
 from ops.torch_kernel.wy_fast_fwd import fwd_prepare_wy_repr
-from ops.torch_kernel.utils import autocast_custom_bwd, autocast_custom_fwd, input_guard
-import triton.language as tl
+
+
 @triton.jit(do_not_specialize=['T'])
 def chunk_rwkv6_fwd_cumsum_kernel(
     s,
