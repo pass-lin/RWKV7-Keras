@@ -2,7 +2,7 @@
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
 from typing import Optional
-
+import os
 import torch
 import triton
 import triton.language as tl
@@ -22,7 +22,19 @@ from ops.torch_kernel.utils import prepare_chunk_indices
 from ops.torch_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
 from ops.torch_kernel.wy_fast_fwd import fwd_prepare_wy_repr
 
-
+@triton.heuristics({
+    'USE_OFFSETS': lambda args: args['offsets'] is not None
+})
+@triton.autotune(
+    configs=[
+        triton.Config({'BS': BS}, num_warps=num_warps, num_stages=num_stages)
+        for BS in [16, 32, 64]
+        for num_warps in [4, 8, 16, 32]
+        for num_stages in [2, 3, 4]
+    ],
+    key=['S', 'BT'],
+    use_cuda_graph=0,
+)
 @triton.jit(do_not_specialize=["T"])
 def chunk_rwkv6_fwd_cumsum_kernel(
     s,
@@ -144,7 +156,7 @@ def chunk_rwkv6_fwd_cumsum(
 
     def grid(meta):
         return (triton.cdiv(meta["S"], meta["BS"]), NT, B * H)
-
+    
     # keep cummulative normalizer in fp32
     chunk_rwkv6_fwd_cumsum_kernel[grid](
         g, gi, ge, offsets, indices, T=T, H=H, S=S, BT=BT, HEAD_FIRST=head_first
@@ -262,7 +274,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             if offsets is not None
             else None
         )
-
+        
         o, final_state = chunk_dplr_fwd(
             q=q,
             k=k,
@@ -526,6 +538,7 @@ def chunk_dplr_delta_rule(
                 f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."
             )
     scale = k.shape[-1] ** -0.5 if scale is None else scale
+    
     o, final_state = ChunkDPLRDeltaRuleFunction.apply(
         q,
         k,

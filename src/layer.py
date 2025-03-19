@@ -2,7 +2,7 @@ import keras
 from keras import ops
 from keras.layers import Dense
 from keras.layers import Layer
-from ops.native_keras_op import RWKV7_OP
+from ops import RWKV7_OP
 from keras import initializers
 
 
@@ -221,7 +221,9 @@ class RWKV7_TimeMix(Layer):
         x = x + ops.reshape(rwkv, (B, T, C))
         x = self.output(x * g)
         return x, v_first
-
+    def compute_output_shape(self, input_shape):
+        output_shapes = [[None,None,self.hidden_size],[None,None,self.hidden_size]]
+        return  output_shapes
     def normalize(
         self,
         z,
@@ -327,6 +329,9 @@ class RWKV7_Block(Layer):
         x = x + xx
         x =  x +  self.ffn(self.ln2(x))
         return x, v_first
+    def compute_output_shape(self, input_shape):
+        output_shapes = [[None,None,self.hidden_size],[None,None,self.hidden_size]]
+        return  output_shapes
     def get_config(self):
         config = {
             "hidden_size": self.hidden_size,

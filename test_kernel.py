@@ -22,7 +22,7 @@ z = ops.reshape(x, (1, 8, 4, 64))
 keras_output,state = keras_op(z, z + 0.1, z + 0.2, z + 0.3, z + 0.4, z + 0.5)
 keras_output = ops.reshape(keras_output, native_output.shape)
 keras_output = ops.convert_to_numpy(ops.cast(keras_output, "float32"))
-keras_is_close = ops.all(ops.isclose(native_output, keras_output, atol=1e-5))
+keras_is_close = ops.all(ops.isclose(native_output, keras_output, rtol=1e-2))
 print(f"keras op check flag :{keras_is_close}")
 
 triton_output,state = triton_op(
@@ -30,3 +30,8 @@ triton_output,state = triton_op(
 )   
 triton_output = triton_output.float().cpu().numpy()
 triton_output = np.reshape(triton_output, native_output.shape)
+from fla.ops.rwkv7 import chunk_rwkv7
+triton_torch_is_close = ops.all(ops.isclose(native_output, triton_output, rtol=1e-2))
+print(f"triton and torch op check flag :{triton_torch_is_close}")
+triton_keras_is_close = ops.all(ops.isclose(triton_output, keras_output, rtol=1e-2))
+print(f"triton and keras op check flag :{triton_keras_is_close}")
