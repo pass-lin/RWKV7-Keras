@@ -10,6 +10,7 @@
 | Keras 原生实现多后端算子         | √    |
 | Torch 后端使用 Triton 算子       | √    |
 | Jax 后端使用 Triton 算子或 CUDA 算子 | x    |
+| 添加state tuning功能 | x    |
 | 转换现成的 RWKV 模型以及转换脚本 | x    |
 | RWKV 推理模块                     | x    |
 | RWKV 推理模块测试                 | x    |
