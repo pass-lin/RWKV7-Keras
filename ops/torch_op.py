@@ -371,11 +371,11 @@ def chunk_rwkv7(
 
 def RWKV7_OP(
     r: torch.Tensor,
+    w: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
     a: torch.Tensor,
     b: torch.Tensor,
-    w: torch.Tensor = None,
     log_w: torch.Tensor = None,
     scale: float = 1.0,
     initial_state: torch.Tensor = None,
@@ -416,6 +416,7 @@ def RWKV7_OP(
             whether to use head first. Recommended to be False to avoid extra transposes.
     """
     if mode == "chunk":
+        from fla.ops.rwkv7 import chunk_rwkv7
         return chunk_rwkv7(
             r=r,
             k=k,
@@ -428,6 +429,7 @@ def RWKV7_OP(
             initial_state=initial_state,
             output_final_state=output_final_state,
             cu_seqlens=cu_seqlens,
+            head_first=head_first,
         )
     return fused_recurrent_rwkv7(
         r=r,
@@ -441,4 +443,5 @@ def RWKV7_OP(
         initial_state=initial_state,
         output_final_state=output_final_state,
         cu_seqlens=cu_seqlens,
+        head_first=head_first,
     )

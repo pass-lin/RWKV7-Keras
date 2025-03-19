@@ -5,6 +5,7 @@ from keras.layers import Layer
 from ops.native_keras_op import RWKV7_OP
 from keras import initializers
 
+
 class TimeShift(Layer):
     def __init__(self, name="time_shift"):
         super(TimeShift, self).__init__(name=name)
@@ -68,7 +69,16 @@ class RWKV7_ChannelMix(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
+class GroupNorm(keras.layers.GroupNormalization):
+    def call(self, inputs):
+        if keras.config.backend() == "torch":
+            import torch.nn.functional as F
+            return F.group_norm(inputs, 
+                                self.groups, 
+                               self.gamma,
+                               self.beta, 
+                               self.epsilon)
+        return super.call(inputs)
 
 class RWKV7_TimeMix(Layer):
     def __init__(
@@ -132,7 +142,7 @@ class RWKV7_TimeMix(Layer):
         self.key = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
         self.value = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
         self.output = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
-        self.ln_x = keras.layers.GroupNormalization(groups=H, epsilon=64e-5)
+        self.ln_x = GroupNorm(groups=H, epsilon=64e-5)
 
         self.receptance.build(input_shape)
         self.value.build(input_shape)
@@ -140,12 +150,12 @@ class RWKV7_TimeMix(Layer):
         self.output.build(input_shape)
         self.ln_x.build((None, C))
 
-    def call(self, x, v_first=None, mask=None):
-        if mask is not None:
-            if ops.ndim(mask) == 2:
-                mask = mask[..., None]
-            mask = ops.cast(mask, x.dtype)
-            x *= mask
+    def call(self, x, v_first=None, padding_mask=None):
+        if padding_mask is not None:
+            if ops.ndim(padding_mask) == 2:
+                padding_mask = padding_mask[..., None]
+            padding_mask = ops.cast(padding_mask, x.dtype)
+            x *= padding_mask
         B, T, C = ops.shape(x)
         H = self.n_head
         xx = self.time_shift(x) - x
@@ -181,19 +191,22 @@ class RWKV7_TimeMix(Layer):
         kk = ops.reshape(kk, (B, T, C))
 
         k = k * (1 + (a - 1) * self.k_a)
-        if mask is not None:
-            w = w * mask + 1 - mask
+        if padding_mask is not None:
+            w = w * padding_mask + 1 - padding_mask
         # N = self.head_size
-
-        x = RWKV7_OP(
+        
+        x,finnal_state = RWKV7_OP(
             ops.reshape(r, (B, T, self.n_head, self.head_size)),
             ops.reshape(w, (B, T, self.n_head, self.head_size)),
             ops.reshape(k, (B, T, self.n_head, self.head_size)),
             ops.reshape(v, (B, T, self.n_head, self.head_size)),
             ops.reshape(-kk, (B, T, self.n_head, self.head_size)),
             ops.reshape(kk * a, (B, T, self.n_head, self.head_size)),
+            
         )
-
+        
+        x = ops.reshape(x, (B, T, C))
+        
         x = ops.reshape(self.ln_x(ops.reshape(x, (B * T, C))), ops.shape(x))
 
         x = ops.reshape(x, (B, T, C))
@@ -235,7 +248,16 @@ class RWKV7_TimeMix(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
+class LayerNorm(keras.layers.LayerNormalization):
+    def call(self, inputs):
+        if keras.config.backend() == "torch":
+            import torch.nn.functional as F
+            return F.layer_norm(
+            inputs, tuple(self.gamma.shape), 
+            self.gamma, self.beta, self.epsilon
+        )
+        
+        return super().call(input)
 
 class RWKV7_Block(Layer):
     def __init__(
@@ -265,17 +287,17 @@ class RWKV7_Block(Layer):
     def build(self, input_shape):
         super().build(input_shape)
         if self.use_initial_norm:
-            self.ln0 = keras.layers.LayerNormalization(
+            self.ln0 = LayerNorm(
                 epsilon=1e-5, name="init_norm"
             )
             self.ln0.build(input_shape)
             
-        self.ln1 = keras.layers.LayerNormalization(
+        self.ln1 = LayerNorm(
             epsilon=1e-5, name="att_norm"
         )
         self.ln1.build(input_shape)
         
-        self.ln2 = keras.layers.LayerNormalization(
+        self.ln2 = LayerNorm(
             epsilon=1e-5, name="ffn_norm"
         )
         self.ln2.build(input_shape)
@@ -296,10 +318,12 @@ class RWKV7_Block(Layer):
                                     name="RWKV_CMIX",
                                     kernel_initializer = self.kernel_initializer)
         self.ffn.build(input_shape)
-    def call(self, x, v_first,mask=None):
+    def call(self, x, v_first=None,padding_mask=None):
         if self.use_initial_norm:
             x = self.ln0(x)
-        xx,v_first = self.att(self.ln1(x), v_first, mask) 
+        
+        xx,v_first = self.att(self.ln1(x), v_first, padding_mask) 
+        
         x = x + xx
         x =  x +  self.ffn(self.ln2(x))
         return x, v_first

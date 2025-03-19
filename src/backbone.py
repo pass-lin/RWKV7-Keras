@@ -8,7 +8,6 @@ class RWKV7Backbone(Backbone):
         self,
         hidden_size,
         head_size,
-        hidden_dim,
         num_layers,
         vocabulary_size,
         intermediate_dim,
@@ -25,20 +24,21 @@ class RWKV7Backbone(Backbone):
         # === Layers ===
         self.token_embedding = keras.layers.Embedding(
             input_dim=vocabulary_size,
-            output_dim=hidden_dim,
+            output_dim=hidden_size,
             embeddings_initializer=rwkv7_kernel_initializer(),
             dtype=dtype,
             name="token_embedding",
         )
-
-        self.output_layer_norm = keras.layers.LayerNormalization(
+        self.token_embedding.build([None,None])
+        
+        self.output_layer_norm = LayerNorm(
                 epsilon=1e-5, name="output_norm"
             )
-        
+        self.output_layer_norm.build([None,None,hidden_size])
         self.dropout = keras.layers.Dropout(
             dropout,
             dtype=dtype,
-            name="embeddings_dropout",
+            name="dropout",
         )
         self.rwkv_layers = []
         for i in range(num_layers):
@@ -55,6 +55,7 @@ class RWKV7Backbone(Backbone):
                 dtype=dtype,
                 name=f"rwkv_layer_{i}",
             )
+            
             self.rwkv_layers.append(layer)
 
         # === Functional Model ===
@@ -62,22 +63,19 @@ class RWKV7Backbone(Backbone):
             shape=(None,), dtype="int32", name="token_ids"
         )
         
-        mask = ops.not_equal(token_id_input,0)
+        padding_mask = ops.not_equal(token_id_input,0)
 
         x = self.token_embedding(token_id_input)
-        v_first = ops.zeros_like(x)
+        padding_mask = ops.cast(padding_mask, dtype=x.dtype)
+        v_first = None
         for rwkv_layer in self.rwkv_layers:
-            x, v_first = rwkv_layer(x, v_first,mask)
+            x, v_first = rwkv_layer(x, v_first,padding_mask)
             x = self.dropout(x)
         sequence_output = self.output_layer_norm(x)
 
         super().__init__(
-            inputs={
-                "token_ids": token_id_input,
-            },
-            outputs={
-                "sequence_output": sequence_output,
-            },
+            inputs=token_id_input,
+            outputs=sequence_output,
             dtype=dtype,
             **kwargs,
         )
@@ -89,7 +87,6 @@ class RWKV7Backbone(Backbone):
         self.mv_lora = mv_lora
         self.aaa_lora = aaa_lora
         self.decay_lora = decay_lora
-        self.hidden_dim = hidden_dim
         self.vocabulary_size = vocabulary_size
         self.dropout = dropout
         self.intermediate_dim = intermediate_dim
@@ -102,7 +99,6 @@ class RWKV7Backbone(Backbone):
             "mv_lora": self.mv_lora,
             "aaa_lora": self.aaa_lora,
             "decay_lora": self.decay_lora,
-            "hidden_dim": self.hidden_dim,
             "vocabulary_size": self.vocabulary_size,
             "dropout":self.dropout,
             "intermediate_dim":self.intermediate_dim,

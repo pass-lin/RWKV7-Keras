@@ -1,16 +1,34 @@
 from keras import ops
 
-
-def RWKV7_OP(r, w, k, v, a, b):
+def transpose_head(x,head_first):
+    if head_first:
+        return ops.transpose(x, (0, 2, 1, 3))
+    else:
+        return x
+def RWKV7_OP(
+    r,
+    w,
+    k,
+    v,
+    a,
+    b,
+    log_w = None,
+    scale: float = 1.0,
+    initial_state = None,
+    output_final_state: bool = True,
+    cu_seqlens = None,
+    head_first: bool = False,
+    mode="chunk",
+):
     DTYPE = r.dtype
     B, T, H, N = ops.shape(r)
     C = H * N
-    r = ops.cast(r, "float32")
-    k = ops.cast(k, "float32")
-    v = ops.cast(v, "float32")
-    a = ops.cast(a, "float32")
-    b = ops.cast(b, "float32")
-    w = ops.cast(w, "float32")
+    r = ops.cast(transpose_head(r,head_first), "float32")
+    k = ops.cast(transpose_head(k,head_first), "float32")
+    v = ops.cast(transpose_head(v,head_first), "float32")
+    a = ops.cast(transpose_head(a,head_first), "float32")
+    b = ops.cast(transpose_head(b,head_first), "float32")
+    w = ops.cast(transpose_head(w,head_first), "float32")
     w = ops.exp(-ops.exp(w))
     out = ops.zeros((B, T, H, N), dtype="float32")
     state = ops.zeros((B, H, N, N), dtype="float32")
@@ -30,4 +48,4 @@ def RWKV7_OP(r, w, k, v, a, b):
 
     state, out = ops.fori_loop(0, T, step, [state, out])
 
-    return ops.cast(ops.reshape(out, (B, T, C)), DTYPE)
+    return ops.cast(out, DTYPE),state

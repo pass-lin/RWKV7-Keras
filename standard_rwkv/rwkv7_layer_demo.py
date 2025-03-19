@@ -46,7 +46,7 @@ elif "421M" in MODEL_PATH:
 
 args.vocab_size = 50304  # "pile" model: 50277 padded to 50304
 
-DTYPE = torch.float
+DTYPE = torch.bfloat16
 # DTYPE = torch.half # better
 
 args.head_size_a = 64  # don't change
@@ -336,8 +336,8 @@ class Block(nn.Module):
     def forward(self, x, v_first):
         if self.layer_id == 0:
             x = self.ln0(x)
-        
         xx, v_first = self.att(self.ln1(x), v_first)
+        
         x = x + xx
         x = x + self.ffn(self.ln2(x))
         
@@ -350,7 +350,7 @@ class Block(nn.Module):
 
 
 class RWKV(nn.Module):
-    def __init__(self, args,return_hidden_state=False):
+    def __init__(self, args):
         super().__init__()
         args.dim_att = args.n_embd
         args.dim_ffn = args.n_embd * 4
@@ -359,19 +359,18 @@ class RWKV(nn.Module):
         self.blocks = nn.ModuleList(
             [Block(args, i) for i in range(args.n_layer)]
         )
-        self.return_hidden_state = return_hidden_state
         self.ln_out = nn.LayerNorm(args.n_embd)
         self.head = nn.Linear(args.n_embd, args.vocab_size, bias=False)
 
-    def forward(self, idx):
+    def forward(self, idx,return_hidden_state=False):
         x = self.emb(idx)
 
         v_first = torch.empty_like(x)
         for block in self.blocks:
             x, v_first = block(x, v_first)
-
+        
         x = self.ln_out(x)
-        if self.return_hidden_state:
+        if return_hidden_state:
             return x
         x = self.head(x)
 
