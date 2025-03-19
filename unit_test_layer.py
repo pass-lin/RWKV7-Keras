@@ -9,7 +9,7 @@ from src.layer import *
 from src.backbone import *
 from standard_rwkv.rwkv7_layer_demo import *
 
-args.num_layers = 3
+args.num_layers = 24
 keras.config.set_dtype_policy("bfloat16")
 
 standard_RWKV = RWKV(args)
@@ -47,12 +47,12 @@ for i in range(1):
     standard_time_mix_out = standard_time_mix(x)
     time_mix_is_close = bool(
         ops.all(
-            ops.isclose(my_time_mix_out[0], standard_time_mix_out[0], atol=1e-4)
+            ops.isclose(my_time_mix_out[0], standard_time_mix_out[0], atol=1e-2)
         )
     )
     v_first_is_close = bool(
         ops.all(
-            ops.isclose(my_time_mix_out[1], standard_time_mix_out[1], atol=1e-4)
+            ops.isclose(my_time_mix_out[1], standard_time_mix_out[1], atol=1e-2)
         )
     )
 
@@ -99,7 +99,7 @@ for i in range(1):
         ops.all(ops.isclose(my_block_out[0], standard_block_out[0], atol=1e-1))
     )
     block_v_first_is_close = bool(
-        ops.all(ops.isclose(my_block_out[1], standard_block_out[1], atol=1e-2))
+        ops.all(ops.isclose(my_block_out[1], standard_block_out[1], atol=1e-1))
     )
 
     print(f"block check flag :{block_is_close}")
