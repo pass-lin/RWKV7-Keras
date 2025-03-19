@@ -323,24 +323,21 @@ class Block(nn.Module):
         self.args = args
         self.layer_id = layer_id
         # only used in block 0, should be fused with emb
-        self.ln0 = nn.LayerNorm(
-            args.n_embd
-        )  
+        self.ln0 = nn.LayerNorm(args.n_embd)
         self.ln1 = nn.LayerNorm(args.n_embd)
         self.ln2 = nn.LayerNorm(args.n_embd)
 
         self.att = RWKV_Tmix_x070(args, layer_id)
         self.ffn = RWKV_CMix_x070(args, layer_id)
 
-   
     def forward(self, x, v_first):
         if self.layer_id == 0:
             x = self.ln0(x)
         xx, v_first = self.att(self.ln1(x), v_first)
-        
+
         x = x + xx
         x = x + self.ffn(self.ln2(x))
-        
+
         return x, v_first
 
 
@@ -362,13 +359,13 @@ class RWKV(nn.Module):
         self.ln_out = nn.LayerNorm(args.n_embd)
         self.head = nn.Linear(args.n_embd, args.vocab_size, bias=False)
 
-    def forward(self, idx,return_hidden_state=False):
+    def forward(self, idx, return_hidden_state=False):
         x = self.emb(idx)
 
         v_first = torch.empty_like(x)
         for block in self.blocks:
             x, v_first = block(x, v_first)
-        
+
         x = self.ln_out(x)
         if return_hidden_state:
             return x

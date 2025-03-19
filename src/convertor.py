@@ -50,25 +50,27 @@ def convert_tmix(my_time_mix, standard_time_mix):
         standard_time_mix.ln_x.bias.detach().cpu(),
     ]
     my_time_mix.set_weights(weights)
-def convert_layernorm(myln,standard_ln):
-    myln.set_weights([standard_ln.weight.detach().cpu(),
-                      standard_ln.bias.detach().cpu()])
+
+
+def convert_layernorm(myln, standard_ln):
+    myln.set_weights(
+        [standard_ln.weight.detach().cpu(), standard_ln.bias.detach().cpu()]
+    )
+
+
 def convert_block(my_block, standard_block):
     convert_cmix(my_block.ffn, standard_block.ffn)
     convert_tmix(my_block.att, standard_block.att)
     if my_block.use_initial_norm:
-        convert_layernorm(my_block.ln0,standard_block.ln0)
-    convert_layernorm(my_block.ln1,standard_block.ln1)
-    convert_layernorm(my_block.ln2,standard_block.ln2)
-    
+        convert_layernorm(my_block.ln0, standard_block.ln0)
+    convert_layernorm(my_block.ln1, standard_block.ln1)
+    convert_layernorm(my_block.ln2, standard_block.ln2)
+
+
 def convert_backbone(my_backbone, standard_RWKV):
     for i in range(my_backbone.num_layers):
         convert_block(my_backbone.rwkv_layers[i], standard_RWKV.blocks[i])
     my_backbone.token_embedding.set_weights(
-        [
-            standard_RWKV.emb.weight.detach().cpu()
-        ]
+        [standard_RWKV.emb.weight.detach().cpu()]
     )
-    convert_layernorm(my_backbone.output_layer_norm,
-                      standard_RWKV.ln_out)
- 
+    convert_layernorm(my_backbone.output_layer_norm, standard_RWKV.ln_out)

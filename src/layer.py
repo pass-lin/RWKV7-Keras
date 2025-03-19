@@ -23,7 +23,7 @@ class TimeShift(Layer):
 
 
 class RWKV7_ChannelMix(Layer):
-    def __init__(self, dim_ffn,kernel_initializer="glorot_uniform", **kwargs):
+    def __init__(self, dim_ffn, kernel_initializer="glorot_uniform", **kwargs):
         super().__init__(**kwargs)
         self.dim_ffn = dim_ffn
         self.kernel_initializer = initializers.get(kernel_initializer)
@@ -44,19 +44,24 @@ class RWKV7_ChannelMix(Layer):
         if isinstance(input_shape, list):
             input_shape = input_shape[0]
         self.x_k = self.add_weight(
-            shape=(1, 1, input_shape[-1]), name="time_mix_k",
+            shape=(1, 1, input_shape[-1]),
+            name="time_mix_k",
             initializer=self.kernel_initializer,
         )
         self.time_shift = TimeShift()
         self.key = keras.layers.Dense(
-            self.dim_ffn, activation="relu", 
-            use_bias=False, name="dense_k",
-            kernel_initializer = self.kernel_initializer
+            self.dim_ffn,
+            activation="relu",
+            use_bias=False,
+            name="dense_k",
+            kernel_initializer=self.kernel_initializer,
         )
-        self.value = keras.layers.Dense(input_shape[-1], 
-                                        use_bias=False, 
-                                        name="dense_v",
-                                        kernel_initializer = self.kernel_initializer)
+        self.value = keras.layers.Dense(
+            input_shape[-1],
+            use_bias=False,
+            name="dense_v",
+            kernel_initializer=self.kernel_initializer,
+        )
         self.key.build(input_shape)
         self.value.build([None, None, self.dim_ffn])
 
@@ -69,16 +74,18 @@ class RWKV7_ChannelMix(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+
 class GroupNorm(keras.layers.GroupNormalization):
     def call(self, inputs):
         if keras.config.backend() == "torch":
             import torch.nn.functional as F
-            return F.group_norm(inputs, 
-                                self.groups, 
-                               self.gamma,
-                               self.beta, 
-                               self.epsilon)
+
+            return F.group_norm(
+                inputs, self.groups, self.gamma, self.beta, self.epsilon
+            )
         return super.call(inputs)
+
 
 class RWKV7_TimeMix(Layer):
     def __init__(
@@ -111,37 +118,101 @@ class RWKV7_TimeMix(Layer):
         N = self.head_size
         B, T, C = input_shape
 
-        self.x_r = self.add_weight(shape=(1, 1, C), name="x_r",initializer=self.kernel_initializer)
-        self.x_w = self.add_weight(shape=(1, 1, C), name="x_w",initializer=self.kernel_initializer)
-        self.x_k = self.add_weight(shape=(1, 1, C), name="x_k",initializer=self.kernel_initializer)
-        self.x_v = self.add_weight(shape=(1, 1, C), name="x_v",initializer=self.kernel_initializer)
-        self.x_a = self.add_weight(shape=(1, 1, C), name="x_a",initializer=self.kernel_initializer)
-        self.x_g = self.add_weight(shape=(1, 1, C), name="x_g",initializer=self.kernel_initializer)
+        self.x_r = self.add_weight(
+            shape=(1, 1, C), name="x_r", initializer=self.kernel_initializer
+        )
+        self.x_w = self.add_weight(
+            shape=(1, 1, C), name="x_w", initializer=self.kernel_initializer
+        )
+        self.x_k = self.add_weight(
+            shape=(1, 1, C), name="x_k", initializer=self.kernel_initializer
+        )
+        self.x_v = self.add_weight(
+            shape=(1, 1, C), name="x_v", initializer=self.kernel_initializer
+        )
+        self.x_a = self.add_weight(
+            shape=(1, 1, C), name="x_a", initializer=self.kernel_initializer
+        )
+        self.x_g = self.add_weight(
+            shape=(1, 1, C), name="x_g", initializer=self.kernel_initializer
+        )
 
-        self.w0 = self.add_weight(shape=(1, 1, C), name="w0",initializer=self.kernel_initializer)
-        self.w1 = self.add_weight(shape=(C, self.decay_lora), name="w1",initializer=self.kernel_initializer)
-        self.w2 = self.add_weight(shape=(self.decay_lora, C), name="w2",initializer=self.kernel_initializer)
+        self.w0 = self.add_weight(
+            shape=(1, 1, C), name="w0", initializer=self.kernel_initializer
+        )
+        self.w1 = self.add_weight(
+            shape=(C, self.decay_lora),
+            name="w1",
+            initializer=self.kernel_initializer,
+        )
+        self.w2 = self.add_weight(
+            shape=(self.decay_lora, C),
+            name="w2",
+            initializer=self.kernel_initializer,
+        )
 
-        self.a0 = self.add_weight(shape=(1, 1, C), name="a0",initializer=self.kernel_initializer)
-        self.a1 = self.add_weight(shape=(C, self.aaa_lora), name="a1",initializer=self.kernel_initializer)
-        self.a2 = self.add_weight(shape=(self.aaa_lora, C), name="a2",initializer=self.kernel_initializer)
+        self.a0 = self.add_weight(
+            shape=(1, 1, C), name="a0", initializer=self.kernel_initializer
+        )
+        self.a1 = self.add_weight(
+            shape=(C, self.aaa_lora),
+            name="a1",
+            initializer=self.kernel_initializer,
+        )
+        self.a2 = self.add_weight(
+            shape=(self.aaa_lora, C),
+            name="a2",
+            initializer=self.kernel_initializer,
+        )
 
-        self.v0 = self.add_weight(shape=(1, 1, C), name="v0",initializer=self.kernel_initializer)
-        self.v1 = self.add_weight(shape=(C, self.mv_lora), name="v1",initializer=self.kernel_initializer)
-        self.v2 = self.add_weight(shape=(self.mv_lora, C), name="v2",initializer=self.kernel_initializer)
+        self.v0 = self.add_weight(
+            shape=(1, 1, C), name="v0", initializer=self.kernel_initializer
+        )
+        self.v1 = self.add_weight(
+            shape=(C, self.mv_lora),
+            name="v1",
+            initializer=self.kernel_initializer,
+        )
+        self.v2 = self.add_weight(
+            shape=(self.mv_lora, C),
+            name="v2",
+            initializer=self.kernel_initializer,
+        )
 
-        self.g1 = self.add_weight(shape=(C, self.gate_lora), name="g1",initializer=self.kernel_initializer)
-        self.g2 = self.add_weight(shape=(self.gate_lora, C), name="g2",initializer=self.kernel_initializer)
+        self.g1 = self.add_weight(
+            shape=(C, self.gate_lora),
+            name="g1",
+            initializer=self.kernel_initializer,
+        )
+        self.g2 = self.add_weight(
+            shape=(self.gate_lora, C),
+            name="g2",
+            initializer=self.kernel_initializer,
+        )
 
-        self.k_k = self.add_weight(shape=(1, 1, C), name="k_k",initializer=self.kernel_initializer)
-        self.k_a = self.add_weight(shape=(1, 1, C), name="k_a",initializer=self.kernel_initializer)
-        self.r_k = self.add_weight(shape=(H, N), name="r_k",initializer=self.kernel_initializer)
+        self.k_k = self.add_weight(
+            shape=(1, 1, C), name="k_k", initializer=self.kernel_initializer
+        )
+        self.k_a = self.add_weight(
+            shape=(1, 1, C), name="k_a", initializer=self.kernel_initializer
+        )
+        self.r_k = self.add_weight(
+            shape=(H, N), name="r_k", initializer=self.kernel_initializer
+        )
 
         self.time_shift = TimeShift()
-        self.receptance = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
-        self.key = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
-        self.value = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
-        self.output = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
+        self.receptance = keras.layers.Dense(
+            C, use_bias=False, kernel_initializer=self.kernel_initializer
+        )
+        self.key = keras.layers.Dense(
+            C, use_bias=False, kernel_initializer=self.kernel_initializer
+        )
+        self.value = keras.layers.Dense(
+            C, use_bias=False, kernel_initializer=self.kernel_initializer
+        )
+        self.output = keras.layers.Dense(
+            C, use_bias=False, kernel_initializer=self.kernel_initializer
+        )
         self.ln_x = GroupNorm(groups=H, epsilon=64e-5)
 
         self.receptance.build(input_shape)
@@ -194,19 +265,18 @@ class RWKV7_TimeMix(Layer):
         if padding_mask is not None:
             w = w * padding_mask + 1 - padding_mask
         # N = self.head_size
-        
-        x,finnal_state = RWKV7_OP(
+
+        x, finnal_state = RWKV7_OP(
             ops.reshape(r, (B, T, self.n_head, self.head_size)),
             ops.reshape(w, (B, T, self.n_head, self.head_size)),
             ops.reshape(k, (B, T, self.n_head, self.head_size)),
             ops.reshape(v, (B, T, self.n_head, self.head_size)),
             ops.reshape(-kk, (B, T, self.n_head, self.head_size)),
             ops.reshape(kk * a, (B, T, self.n_head, self.head_size)),
-            
         )
-        
+
         x = ops.reshape(x, (B, T, C))
-        
+
         x = ops.reshape(self.ln_x(ops.reshape(x, (B * T, C))), ops.shape(x))
 
         x = ops.reshape(x, (B, T, C))
@@ -221,9 +291,14 @@ class RWKV7_TimeMix(Layer):
         x = x + ops.reshape(rwkv, (B, T, C))
         x = self.output(x * g)
         return x, v_first
+
     def compute_output_shape(self, input_shape):
-        output_shapes = [[None,None,self.hidden_size],[None,None,self.hidden_size]]
-        return  output_shapes
+        output_shapes = [
+            [None, None, self.hidden_size],
+            [None, None, self.hidden_size],
+        ]
+        return output_shapes
+
     def normalize(
         self,
         z,
@@ -250,16 +325,23 @@ class RWKV7_TimeMix(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
+
 class LayerNorm(keras.layers.LayerNormalization):
     def call(self, inputs):
         if keras.config.backend() == "torch":
             import torch.nn.functional as F
+
             return F.layer_norm(
-            inputs, tuple(self.gamma.shape), 
-            self.gamma, self.beta, self.epsilon
-        )
-        
+                inputs,
+                tuple(self.gamma.shape),
+                self.gamma,
+                self.beta,
+                self.epsilon,
+            )
+
         return super().call(input)
+
 
 class RWKV7_Block(Layer):
     def __init__(
@@ -289,21 +371,15 @@ class RWKV7_Block(Layer):
     def build(self, input_shape):
         super().build(input_shape)
         if self.use_initial_norm:
-            self.ln0 = LayerNorm(
-                epsilon=1e-5, name="init_norm"
-            )
+            self.ln0 = LayerNorm(epsilon=1e-5, name="init_norm")
             self.ln0.build(input_shape)
-            
-        self.ln1 = LayerNorm(
-            epsilon=1e-5, name="att_norm"
-        )
+
+        self.ln1 = LayerNorm(epsilon=1e-5, name="att_norm")
         self.ln1.build(input_shape)
-        
-        self.ln2 = LayerNorm(
-            epsilon=1e-5, name="ffn_norm"
-        )
+
+        self.ln2 = LayerNorm(epsilon=1e-5, name="ffn_norm")
         self.ln2.build(input_shape)
-        
+
         self.att = RWKV7_TimeMix(
             self.hidden_size,
             self.head_size,
@@ -312,26 +388,34 @@ class RWKV7_Block(Layer):
             self.aaa_lora,
             self.decay_lora,
             name="RWKV_TIME_MIX",
-            kernel_initializer = self.kernel_initializer
+            kernel_initializer=self.kernel_initializer,
         )
         self.att.build(input_shape)
 
-        self.ffn = RWKV7_ChannelMix(self.intermediate_dim, 
-                                    name="RWKV_CMIX",
-                                    kernel_initializer = self.kernel_initializer)
+        self.ffn = RWKV7_ChannelMix(
+            self.intermediate_dim,
+            name="RWKV_CMIX",
+            kernel_initializer=self.kernel_initializer,
+        )
         self.ffn.build(input_shape)
-    def call(self, x, v_first=None,padding_mask=None):
+
+    def call(self, x, v_first=None, padding_mask=None):
         if self.use_initial_norm:
             x = self.ln0(x)
-        
-        xx,v_first = self.att(self.ln1(x), v_first, padding_mask) 
-        
+
+        xx, v_first = self.att(self.ln1(x), v_first, padding_mask)
+
         x = x + xx
-        x =  x +  self.ffn(self.ln2(x))
+        x = x + self.ffn(self.ln2(x))
         return x, v_first
+
     def compute_output_shape(self, input_shape):
-        output_shapes = [[None,None,self.hidden_size],[None,None,self.hidden_size]]
-        return  output_shapes
+        output_shapes = [
+            [None, None, self.hidden_size],
+            [None, None, self.hidden_size],
+        ]
+        return output_shapes
+
     def get_config(self):
         config = {
             "hidden_size": self.hidden_size,

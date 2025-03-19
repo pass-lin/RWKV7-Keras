@@ -416,7 +416,6 @@ def RWKV7_OP(
             whether to use head first. Recommended to be False to avoid extra transposes.
     """
     if mode == "chunk":
-        
         return chunk_rwkv7(
             r=r,
             k=k,
