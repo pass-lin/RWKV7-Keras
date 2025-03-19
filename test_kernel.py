@@ -7,7 +7,7 @@ import torch
 
 from keras import ops
 from ops.native_keras_op import RWKV7_OP as keras_op
-from standard_rwkv.rwkv7_layer import RWKV7_OP as native_op
+from standard_rwkv.rwkv7_layer_demo import RWKV7_OP as native_op
 
 native_x = np.random.random([1, 8, 4 * 64])
 x = torch.from_numpy(native_x).cuda().bfloat16()

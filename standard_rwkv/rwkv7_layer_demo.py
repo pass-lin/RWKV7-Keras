@@ -46,13 +46,13 @@ elif "421M" in MODEL_PATH:
 
 args.vocab_size = 50304  # "pile" model: 50277 padded to 50304
 
-DTYPE = torch.bfloat16
+DTYPE = torch.float
 # DTYPE = torch.half # better
 
 args.head_size_a = 64  # don't change
 HEAD_SIZE = args.head_size_a
 
-USE_KERNEL = "native"  # False => UNOPTIMIZED, VERY SLOW
+USE_KERNEL = False  # False => UNOPTIMIZED, VERY SLOW
 
 MyModule = torch.jit.ScriptModule
 MyFunction = torch.jit.script_method
@@ -62,7 +62,7 @@ MyStatic = torch.jit.script
 # CUDA Kernel
 ########################################################################################################
 
-if USE_KERNEL == "CUDA":
+if USE_KERNEL:
     from torch.utils.cpp_extension import load
 
     load(
@@ -317,30 +317,30 @@ class RWKV_CMix_x070(MyModule):
 ########################################################################################################
 
 
-class Block(MyModule):
+class Block(nn.Module):
     def __init__(self, args, layer_id):
         super().__init__()
         self.args = args
         self.layer_id = layer_id
-
+        # only used in block 0, should be fused with emb
         self.ln0 = nn.LayerNorm(
             args.n_embd
-        )  # only used in block 0, should be fused with emb
+        )  
         self.ln1 = nn.LayerNorm(args.n_embd)
         self.ln2 = nn.LayerNorm(args.n_embd)
 
         self.att = RWKV_Tmix_x070(args, layer_id)
         self.ffn = RWKV_CMix_x070(args, layer_id)
 
-    @MyFunction
+   
     def forward(self, x, v_first):
         if self.layer_id == 0:
             x = self.ln0(x)
-
+        
         xx, v_first = self.att(self.ln1(x), v_first)
         x = x + xx
         x = x + self.ffn(self.ln2(x))
-
+        
         return x, v_first
 
 
@@ -350,7 +350,7 @@ class Block(MyModule):
 
 
 class RWKV(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args,return_hidden_state=False):
         super().__init__()
         args.dim_att = args.n_embd
         args.dim_ffn = args.n_embd * 4
@@ -359,7 +359,7 @@ class RWKV(nn.Module):
         self.blocks = nn.ModuleList(
             [Block(args, i) for i in range(args.n_layer)]
         )
-
+        self.return_hidden_state = return_hidden_state
         self.ln_out = nn.LayerNorm(args.n_embd)
         self.head = nn.Linear(args.n_embd, args.vocab_size, bias=False)
 
@@ -371,6 +371,8 @@ class RWKV(nn.Module):
             x, v_first = block(x, v_first)
 
         x = self.ln_out(x)
+        if self.return_hidden_state:
+            return x
         x = self.head(x)
 
         return x

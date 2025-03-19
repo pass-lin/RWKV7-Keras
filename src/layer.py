@@ -3,7 +3,7 @@ from keras import ops
 from keras.layers import Dense
 from keras.layers import Layer
 from ops.native_keras_op import RWKV7_OP
-
+from keras import initializers
 
 class TimeShift(Layer):
     def __init__(self, name="time_shift"):
@@ -22,9 +22,10 @@ class TimeShift(Layer):
 
 
 class RWKV7_ChannelMix(Layer):
-    def __init__(self, dim_ffn, **kwargs):
+    def __init__(self, dim_ffn,kernel_initializer="glorot_uniform", **kwargs):
         super().__init__(**kwargs)
         self.dim_ffn = dim_ffn
+        self.kernel_initializer = initializers.get(kernel_initializer)
 
     def call(self, x):
         xx = self.time_shift(x) - x
@@ -42,19 +43,28 @@ class RWKV7_ChannelMix(Layer):
         if isinstance(input_shape, list):
             input_shape = input_shape[0]
         self.x_k = self.add_weight(
-            shape=(1, 1, input_shape[-1]), name="time_mix_k"
+            shape=(1, 1, input_shape[-1]), name="time_mix_k",
+            initializer=self.kernel_initializer,
         )
         self.time_shift = TimeShift()
-        self.key = Dense(
-            self.dim_ffn, activation="relu", use_bias=False, name="dense_k"
+        self.key = keras.layers.Dense(
+            self.dim_ffn, activation="relu", 
+            use_bias=False, name="dense_k",
+            kernel_initializer = self.kernel_initializer
         )
-        self.value = Dense(input_shape[-1], use_bias=False, name="dense_v")
+        self.value = keras.layers.Dense(input_shape[-1], 
+                                        use_bias=False, 
+                                        name="dense_v",
+                                        kernel_initializer = self.kernel_initializer)
         self.key.build(input_shape)
         self.value.build([None, None, self.dim_ffn])
 
     def get_config(self):
         config = {
             "dim_ffn": self.dim_ffn,
+            "kernel_initializer": initializers.serialize(
+                self.kernel_initializer
+            ),
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -69,6 +79,7 @@ class RWKV7_TimeMix(Layer):
         mv_lora=32,
         aaa_lora=64,
         decay_lora=64,
+        kernel_initializer="glorot_uniform",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -79,6 +90,7 @@ class RWKV7_TimeMix(Layer):
         self.mv_lora = mv_lora
         self.aaa_lora = aaa_lora
         self.decay_lora = decay_lora
+        self.kernel_initializer = initializers.get(kernel_initializer)
         assert self.hidden_size % self.n_head == 0
 
     def build(self, input_shape):
@@ -89,44 +101,44 @@ class RWKV7_TimeMix(Layer):
         N = self.head_size
         B, T, C = input_shape
 
-        self.x_r = self.add_weight(shape=(1, 1, C), name="x_r")
-        self.x_w = self.add_weight(shape=(1, 1, C), name="x_w")
-        self.x_k = self.add_weight(shape=(1, 1, C), name="x_k")
-        self.x_v = self.add_weight(shape=(1, 1, C), name="x_v")
-        self.x_a = self.add_weight(shape=(1, 1, C), name="x_a")
-        self.x_g = self.add_weight(shape=(1, 1, C), name="x_g")
+        self.x_r = self.add_weight(shape=(1, 1, C), name="x_r",initializer=self.kernel_initializer)
+        self.x_w = self.add_weight(shape=(1, 1, C), name="x_w",initializer=self.kernel_initializer)
+        self.x_k = self.add_weight(shape=(1, 1, C), name="x_k",initializer=self.kernel_initializer)
+        self.x_v = self.add_weight(shape=(1, 1, C), name="x_v",initializer=self.kernel_initializer)
+        self.x_a = self.add_weight(shape=(1, 1, C), name="x_a",initializer=self.kernel_initializer)
+        self.x_g = self.add_weight(shape=(1, 1, C), name="x_g",initializer=self.kernel_initializer)
 
-        self.w0 = self.add_weight(shape=(1, 1, C), name="w0")
-        self.w1 = self.add_weight(shape=(C, self.decay_lora), name="w1")
-        self.w2 = self.add_weight(shape=(self.decay_lora, C), name="w2")
+        self.w0 = self.add_weight(shape=(1, 1, C), name="w0",initializer=self.kernel_initializer)
+        self.w1 = self.add_weight(shape=(C, self.decay_lora), name="w1",initializer=self.kernel_initializer)
+        self.w2 = self.add_weight(shape=(self.decay_lora, C), name="w2",initializer=self.kernel_initializer)
 
-        self.a0 = self.add_weight(shape=(1, 1, C), name="a0")
-        self.a1 = self.add_weight(shape=(C, self.aaa_lora), name="a1")
-        self.a2 = self.add_weight(shape=(self.aaa_lora, C), name="a2")
+        self.a0 = self.add_weight(shape=(1, 1, C), name="a0",initializer=self.kernel_initializer)
+        self.a1 = self.add_weight(shape=(C, self.aaa_lora), name="a1",initializer=self.kernel_initializer)
+        self.a2 = self.add_weight(shape=(self.aaa_lora, C), name="a2",initializer=self.kernel_initializer)
 
-        self.v0 = self.add_weight(shape=(1, 1, C), name="v0")
-        self.v1 = self.add_weight(shape=(C, self.mv_lora), name="v1")
-        self.v2 = self.add_weight(shape=(self.mv_lora, C), name="v2")
+        self.v0 = self.add_weight(shape=(1, 1, C), name="v0",initializer=self.kernel_initializer)
+        self.v1 = self.add_weight(shape=(C, self.mv_lora), name="v1",initializer=self.kernel_initializer)
+        self.v2 = self.add_weight(shape=(self.mv_lora, C), name="v2",initializer=self.kernel_initializer)
 
-        self.g1 = self.add_weight(shape=(C, self.gate_lora), name="g1")
-        self.g2 = self.add_weight(shape=(self.gate_lora, C), name="g2")
+        self.g1 = self.add_weight(shape=(C, self.gate_lora), name="g1",initializer=self.kernel_initializer)
+        self.g2 = self.add_weight(shape=(self.gate_lora, C), name="g2",initializer=self.kernel_initializer)
 
-        self.k_k = self.add_weight(shape=(1, 1, C), name="k_k")
-        self.k_a = self.add_weight(shape=(1, 1, C), name="k_a")
-        self.r_k = self.add_weight(shape=(H, N), name="r_k")
+        self.k_k = self.add_weight(shape=(1, 1, C), name="k_k",initializer=self.kernel_initializer)
+        self.k_a = self.add_weight(shape=(1, 1, C), name="k_a",initializer=self.kernel_initializer)
+        self.r_k = self.add_weight(shape=(H, N), name="r_k",initializer=self.kernel_initializer)
 
         self.time_shift = TimeShift()
-        self.receptance = Dense(C, use_bias=False)
-        self.key = Dense(C, use_bias=False)
-        self.value = Dense(C, use_bias=False)
-        self.output = Dense(C, use_bias=False)
+        self.receptance = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
+        self.key = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
+        self.value = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
+        self.output = keras.layers.Dense(C, use_bias=False,kernel_initializer = self.kernel_initializer)
         self.ln_x = keras.layers.GroupNormalization(groups=H, epsilon=64e-5)
 
         self.receptance.build(input_shape)
         self.value.build(input_shape)
         self.key.build(input_shape)
         self.output.build(input_shape)
-        self.ln_x.build((B * T, C))
+        self.ln_x.build((None, C))
 
     def call(self, x, v_first=None, mask=None):
         if mask is not None:
@@ -217,6 +229,9 @@ class RWKV7_TimeMix(Layer):
             "mv_lora": self.mv_lora,
             "aaa_lora": self.aaa_lora,
             "decay_lora": self.decay_lora,
+            "kernel_initializer": initializers.serialize(
+                self.kernel_initializer
+            ),
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -227,12 +242,13 @@ class RWKV7_Block(Layer):
         self,
         hidden_size,
         head_size,
-        dim_ffn,
+        intermediate_dim,
         gate_lora=128,
         mv_lora=32,
         aaa_lora=64,
         decay_lora=64,
         use_initial_norm=False,
+        kernel_initializer="glorot_uniform",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -242,8 +258,9 @@ class RWKV7_Block(Layer):
         self.mv_lora = mv_lora
         self.aaa_lora = aaa_lora
         self.decay_lora = decay_lora
-        self.dim_ffn = dim_ffn
-        self.use_initial_norm
+        self.intermediate_dim = intermediate_dim
+        self.use_initial_norm = use_initial_norm
+        self.kernel_initializer = initializers.get(kernel_initializer)
 
     def build(self, input_shape):
         super().build(input_shape)
@@ -251,12 +268,18 @@ class RWKV7_Block(Layer):
             self.ln0 = keras.layers.LayerNormalization(
                 epsilon=1e-5, name="init_norm"
             )
+            self.ln0.build(input_shape)
+            
         self.ln1 = keras.layers.LayerNormalization(
             epsilon=1e-5, name="att_norm"
         )
+        self.ln1.build(input_shape)
+        
         self.ln2 = keras.layers.LayerNormalization(
             epsilon=1e-5, name="ffn_norm"
         )
+        self.ln2.build(input_shape)
+        
         self.att = RWKV7_TimeMix(
             self.hidden_size,
             self.head_size,
@@ -265,10 +288,21 @@ class RWKV7_Block(Layer):
             self.aaa_lora,
             self.decay_lora,
             name="RWKV_TIME_MIX",
+            kernel_initializer = self.kernel_initializer
         )
+        self.att.build(input_shape)
 
-        self.ffn = RWKV7_ChannelMix(self.dim_ffn, name="RWKV_CMIX")
-
+        self.ffn = RWKV7_ChannelMix(self.intermediate_dim, 
+                                    name="RWKV_CMIX",
+                                    kernel_initializer = self.kernel_initializer)
+        self.ffn.build(input_shape)
+    def call(self, x, v_first,mask=None):
+        if self.use_initial_norm:
+            x = self.ln0(x)
+        xx,v_first = self.att(self.ln1(x), v_first, mask) 
+        x = x + xx
+        x =  x +  self.ffn(self.ln2(x))
+        return x, v_first
     def get_config(self):
         config = {
             "hidden_size": self.hidden_size,
@@ -277,8 +311,11 @@ class RWKV7_Block(Layer):
             "mv_lora": self.mv_lora,
             "aaa_lora": self.aaa_lora,
             "decay_lora": self.decay_lora,
-            "dim_ffn": self.dim_ffn,
+            "intermediate_dim": self.intermediate_dim,
             "use_initial_norm": self.use_initial_norm,
+            "kernel_initializer": initializers.serialize(
+                self.kernel_initializer
+            ),
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
