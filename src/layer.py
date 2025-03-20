@@ -1,9 +1,8 @@
 import keras
+from keras import initializers
 from keras import ops
-from keras.layers import Dense
 from keras.layers import Layer
 from ops import RWKV7_OP
-from keras import initializers
 
 
 class TimeShift(Layer):
@@ -240,7 +239,13 @@ class RWKV7_TimeMix(Layer):
 
         r = self.receptance(xr)
         w = (
-            -ops.softplus(-(self.w0 + ops.tanh(xw @ self.w1) @ self.w2)) - 0.5
+            -ops.softplus(
+                -(
+                    self.w0
+                    + ops.matmul(ops.tanh(ops.matmul(xw, self.w1)), self.w2)
+                )
+            )
+            - 0.5
         )  # soft-clamp to (-inf, -0.5)
         k = self.key(xk)
         v = self.value(xv)
@@ -248,13 +253,13 @@ class RWKV7_TimeMix(Layer):
             v_first = v
         else:
             v = v + (v_first - v) * ops.sigmoid(
-                self.v0 + (xv @ self.v1) @ self.v2
+                self.v0 + ops.matmul(ops.matmul(xv, self.v1), self.v2)
             )
 
         a = ops.sigmoid(
-            self.a0 + (xa @ self.a1) @ self.a2
+            self.a0 + ops.matmul(ops.matmul(xa, self.a1), self.a2)
         )  # a is "in-context learning rate"
-        g = ops.sigmoid(xg @ self.g1) @ self.g2
+        g = ops.matmul(ops.sigmoid(ops.matmul(xg, self.g1)), self.g2)
 
         kk = k * self.k_k
 

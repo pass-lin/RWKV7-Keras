@@ -4,9 +4,9 @@ os.environ["KERAS_BACKEND"] = "torch"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 from keras import ops
+from src.backbone import *
 from src.convertor import *
 from src.layer import *
-from src.backbone import *
 from standard_rwkv.rwkv7_layer_demo import *
 
 args.num_layers = 24
