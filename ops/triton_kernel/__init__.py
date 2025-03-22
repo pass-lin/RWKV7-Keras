@@ -1,0 +1,2 @@
+from ops.triton_kernel.chunk import chunk_dplr_delta_rule
+from ops.triton_kernel.fused_recurrent import fused_recurrent_dplr_delta_rule

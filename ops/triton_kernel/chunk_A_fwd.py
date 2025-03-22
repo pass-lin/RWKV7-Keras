@@ -7,8 +7,8 @@ import torch
 import triton
 import triton.language as tl
 
-from ops.torch_kernel.math import exp
-from ops.torch_kernel.utils import use_cuda_graph
+from ops.triton_kernel.math import exp
+from ops.triton_kernel.utils import use_cuda_graph
 
 
 @triton.heuristics({"USE_OFFSETS": lambda args: args["offsets"] is not None})

@@ -7,20 +7,20 @@ import torch
 import triton
 import triton.language as tl
 
-from ops.torch_kernel.chunk_A_bwd import chunk_dplr_bwd_dqk_intra
-from ops.torch_kernel.chunk_A_fwd import chunk_fwd_intra_dplr_fn
-from ops.torch_kernel.chunk_h_bwd import chunk_dplr_bwd_dhu
-from ops.torch_kernel.chunk_h_fwd import chunk_dplr_fwd_h
-from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_dAu
-from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_dv
-from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_o
-from ops.torch_kernel.chunk_o_fwd import chunk_dplr_fwd_o
-from ops.torch_kernel.utils import autocast_custom_bwd
-from ops.torch_kernel.utils import autocast_custom_fwd
-from ops.torch_kernel.utils import input_guard
-from ops.torch_kernel.utils import prepare_chunk_indices
-from ops.torch_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
-from ops.torch_kernel.wy_fast_fwd import fwd_prepare_wy_repr
+from ops.triton_kernel.chunk_A_bwd import chunk_dplr_bwd_dqk_intra
+from ops.triton_kernel.chunk_A_fwd import chunk_fwd_intra_dplr_fn
+from ops.triton_kernel.chunk_h_bwd import chunk_dplr_bwd_dhu
+from ops.triton_kernel.chunk_h_fwd import chunk_dplr_fwd_h
+from ops.triton_kernel.chunk_o_bwd import chunk_dplr_bwd_dAu
+from ops.triton_kernel.chunk_o_bwd import chunk_dplr_bwd_dv
+from ops.triton_kernel.chunk_o_bwd import chunk_dplr_bwd_o
+from ops.triton_kernel.chunk_o_fwd import chunk_dplr_fwd_o
+from ops.triton_kernel.utils import autocast_custom_bwd
+from ops.triton_kernel.utils import autocast_custom_fwd
+from ops.triton_kernel.utils import input_guard
+from ops.triton_kernel.utils import prepare_chunk_indices
+from ops.triton_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
+from ops.triton_kernel.wy_fast_fwd import fwd_prepare_wy_repr
 
 
 @triton.heuristics({"USE_OFFSETS": lambda args: args["offsets"] is not None})

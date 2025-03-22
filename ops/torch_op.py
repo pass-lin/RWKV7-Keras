@@ -8,11 +8,11 @@ import torch
 import triton
 import triton.language as tl
 
-from ops.torch_kernel import chunk_dplr_delta_rule
-from ops.torch_kernel import fused_recurrent_dplr_delta_rule
-from ops.torch_kernel.math import exp
-from ops.torch_kernel.utils import input_guard
-from ops.torch_kernel.utils import use_cuda_graph
+from ops.triton_kernel import chunk_dplr_delta_rule
+from ops.triton_kernel import fused_recurrent_dplr_delta_rule
+from ops.triton_kernel.math import exp
+from ops.triton_kernel.utils import input_guard
+from ops.triton_kernel.utils import use_cuda_graph
 
 
 @torch.compile(fullgraph=True)
