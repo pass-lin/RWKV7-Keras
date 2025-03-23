@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional
 
-import torch
 import triton
 import triton.language as tl
 
-from ops.triton_kernel.utils import device_capacity
-from ops.triton_kernel.utils import use_cuda_graph
+from ops.get_devices_info import device_capacity
+from ops.get_devices_info import use_cuda_graph
 
 BK_LIST = [64, 128] if device_capacity else [16, 32]
 
@@ -211,47 +209,3 @@ def chunk_dplr_fwd_kernel_o(
         + tl.dot(b_Aqb.to(b_v_new.dtype), b_v_new)
     )
     tl.store(p_o, b_o.to(p_o.dtype.element_ty), boundary_check=(0, 1))
-
-
-def chunk_dplr_fwd_o(
-    qg: torch.Tensor,
-    v: torch.Tensor,
-    v_new: torch.Tensor,
-    A_qk: torch.Tensor,
-    A_qb: torch.Tensor,
-    h: torch.Tensor,
-    offsets: Optional[torch.LongTensor] = None,
-    indices: Optional[torch.LongTensor] = None,
-    head_first: bool = True,
-    chunk_size: int = 64,
-) -> torch.Tensor:
-    if head_first:
-        B, H, T, K, V = *qg.shape, v.shape[-1]
-    else:
-        B, T, H, K, V = *qg.shape, v.shape[-1]
-    BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    NT = triton.cdiv(T, BT) if offsets is None else len(indices)
-
-    o = torch.empty_like(v)
-
-    def grid(meta):
-        return (triton.cdiv(V, meta["BV"]), NT, B * H)
-
-    chunk_dplr_fwd_kernel_o[grid](
-        qg=qg,
-        v=v,
-        v_new=v_new,
-        A_qk=A_qk,
-        A_qb=A_qb,
-        h=h,
-        o=o,
-        offsets=offsets,
-        indices=indices,
-        T=T,
-        H=H,
-        K=K,
-        V=V,
-        BT=BT,
-        HEAD_FIRST=head_first,
-    )
-    return o

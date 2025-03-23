@@ -1,5 +1,6 @@
-from keras import ops
 import keras
+from keras import ops
+
 
 def transpose_head(x, head_first):
     if head_first:
@@ -21,7 +22,7 @@ def RWKV7_OP(
     output_final_state: bool = True,
     cu_seqlens=None,
     head_first: bool = False,
-    mode="chunk",
+    use_chunk=None,
 ):
     DTYPE = r.dtype
     B, T, H, N = ops.shape(r)
@@ -43,15 +44,17 @@ def RWKV7_OP(
         vv = ops.reshape(v[:, t, :], (B, H, N, 1))
         aa = ops.reshape(a[:, t, :], (B, H, N, 1))
         bb = ops.reshape(b[:, t, :], (B, H, 1, N))
-        state = state * ops.expand_dims(w[:, t],-2) + \
-            ops.matmul(state , ops.matmul(aa,bb)) + ops.matmul(vv,kk)
+        state = (
+            state * ops.expand_dims(w[:, t], -2)
+            + ops.matmul(state, ops.matmul(aa, bb))
+            + ops.matmul(vv, kk)
+        )
         out = ops.slice_update(
-            out, [0, t, 0, 0], 
-            ops.reshape(ops.matmul(state,rr), (B, 1, H, N))
+            out, [0, t, 0, 0], ops.reshape(ops.matmul(state, rr), (B, 1, H, N))
         )
         return [state, out]
 
-    if keras.config.backend()=="openvino":
+    if keras.config.backend() == "openvino":
         for t in range(T):
             state, out = step(t, [state, out])
     else:
