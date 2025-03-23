@@ -16,11 +16,8 @@ def RWKV7_OP(
     v,
     a,
     b,
-    log_w=None,
-    scale: float = 1.0,
     initial_state=None,
     output_final_state: bool = True,
-    cu_seqlens=None,
     head_first: bool = False,
     use_chunk=None,
 ):
@@ -35,7 +32,10 @@ def RWKV7_OP(
     w = ops.cast(transpose_head(w, head_first), "float32")
     w = ops.exp(-ops.exp(w))
     out = ops.zeros((B, T, H, N), dtype="float32")
-    state = ops.zeros((B, H, N, N), dtype="float32")
+    if initial_state is not None:
+        state = ops.cast(initial_state, "float32")
+    else:
+        state = ops.zeros((B, H, N, N), dtype="float32")
 
     def step(t, inputs):
         state, out = inputs
@@ -59,5 +59,7 @@ def RWKV7_OP(
             state, out = step(t, [state, out])
     else:
         state, out = ops.fori_loop(0, T, step, [state, out])
-
-    return ops.cast(out, DTYPE), state
+    out = ops.cast(out, DTYPE)
+    if output_final_state:
+        return out, state
+    return out

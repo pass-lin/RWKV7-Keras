@@ -584,11 +584,8 @@ def RWKV7_OP(
     v: torch.Tensor,
     a: torch.Tensor,
     b: torch.Tensor,
-    log_w: torch.Tensor = None,
-    scale: float = 1.0,
     initial_state: torch.Tensor = None,
     output_final_state: bool = True,
-    cu_seqlens: Optional[torch.LongTensor] = None,
     head_first: bool = False,
     use_chunk: bool = True,
 ):
@@ -607,19 +604,12 @@ def RWKV7_OP(
         w (torch.Tensor):
             decay of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`, kernel
             will apply log_w = -torch.exp(w)
-        log_w (torch.Tensor):
-            log decay of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
-        scale (float):
-            scale of the attention.
         initial_state (Optional[torch.Tensor]):
             Initial state of shape `[N, H, K, V]` for `N` input sequences.
             For equal-length input sequences, `N` equals the batch size `B`.
             Default: `None`.
         output_final_state (Optional[bool]):
             Whether to output the final state of shape `[N, H, K, V]`. Default: `False`.
-        cu_seqlens (torch.LongTensor):
-            Cumulative sequence lengths of shape `[N+1]` used for variable-length training,
-            consistent with the FlashAttention API.
         head_first (bool):
             whether to use head first. Recommended to be False to avoid extra transposes.
     """
@@ -631,11 +621,8 @@ def RWKV7_OP(
             a=a,
             b=b,
             w=w,
-            log_w=log_w,
-            scale=scale,
             initial_state=initial_state,
             output_final_state=output_final_state,
-            cu_seqlens=cu_seqlens,
             head_first=head_first,
         )
     return fused_recurrent_rwkv7(
@@ -645,10 +632,7 @@ def RWKV7_OP(
         a=a,
         b=b,
         w=w,
-        log_w=log_w,
-        scale=scale,
         initial_state=initial_state,
         output_final_state=output_final_state,
-        cu_seqlens=cu_seqlens,
         head_first=head_first,
     )
