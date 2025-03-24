@@ -9,7 +9,7 @@ def transpose_head(x, head_first):
         return x
 
 
-def RWKV7_OP(
+def generalized_delta_rule(
     r,
     w,
     k,

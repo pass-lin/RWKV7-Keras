@@ -6,8 +6,8 @@ import numpy as np
 import torch
 
 from keras import ops
-from ops.native_keras_op import RWKV7_OP as keras_op
-from ops.torch_op import RWKV7_OP as triton_op
+from ops.native_keras_op import generalized_delta_rule as keras_op
+from ops.torch_op import generalized_delta_rule as triton_op
 from standard_rwkv.rwkv7_layer_demo import RWKV7_OP as native_op
 
 native_x = np.random.random([1, 8, 4 * 64])

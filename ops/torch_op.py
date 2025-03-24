@@ -577,7 +577,7 @@ def chunk_rwkv7(
     )
 
 
-def RWKV7_OP(
+def generalized_delta_rule(
     r: torch.Tensor,
     w: torch.Tensor,
     k: torch.Tensor,

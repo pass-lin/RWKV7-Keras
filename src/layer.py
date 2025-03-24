@@ -2,7 +2,7 @@ import keras
 from keras import initializers
 from keras import ops
 from keras.layers import Layer
-from ops import RWKV7_OP
+from ops import generalized_delta_rule as RWKV7_OP
 
 
 class TimeShift(Layer):
