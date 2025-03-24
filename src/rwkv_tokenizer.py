@@ -1,3 +1,6 @@
+from keras_hub.src.tokenizers import tokenizer
+
+
 class TRIE:
     __slots__ = tuple("ch,to,values,front".split(","))
     to: list
@@ -103,3 +106,7 @@ class RWKV_TOKENIZER:
                 pass
             print(f"{repr(s)}{i}", end=" ")
         print()
+
+
+class RWKVTokenizer(tokenizer.Tokenizer):
+    pass
