@@ -15,5 +15,4 @@
 | 转换现成的 RWKV 模型以及转换脚本 | x    |
 | RWKV 推理模块                     | x    |
 | RWKV 推理模块测试                 | x    |
-| Keras_hub 风格的 RWKV tokenizer  | x    |
 | 提交到 Keras 官方仓库             | x    |
