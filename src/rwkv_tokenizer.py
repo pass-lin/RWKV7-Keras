@@ -1,6 +1,12 @@
+import os
+from keras import ops
+import keras
 from keras_hub.src.tokenizers import tokenizer
-
-
+from keras_hub.src.utils.tensor_utils import is_int_dtype
+from keras_hub.src.utils.tensor_utils import is_string_dtype
+from keras_hub.src.utils.tensor_utils import tensor_to_list
+from keras_hub.src.utils.tensor_utils import preprocessing_function
+VOCAB_FILENAME = "vocab.txt"
 class TRIE:
     __slots__ = tuple("ch,to,values,front".split(","))
     to: list
@@ -48,12 +54,10 @@ class TRIE:
 
 
 class RWKV_TOKENIZER:
-    def __init__(self, file_name):
+    def __init__(self, vocabs):
         self.idx2token = {}
         sorted = []  # must be already sorted
-        with open(file_name, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        for l in lines:
+        for l in vocabs:
             idx = int(l[: l.index(" ")])
             x = eval(l[l.index(" ") : l.rindex(" ")])
             x = x.encode("utf-8") if isinstance(x, str) else x
@@ -86,8 +90,8 @@ class RWKV_TOKENIZER:
 
     def encode(self, src):
         if isinstance(src, str):
-            return [self.encodeBytes(src.encode("utf-8"))]
-        elif isinstance(src, list):
+            return self.encodeBytes(src.encode("utf-8"))
+        else:
             return [self.encodeBytes(s.encode("utf-8")) for s in src]
 
     def decode(self, tokens):
@@ -109,4 +113,87 @@ class RWKV_TOKENIZER:
 
 
 class RWKVTokenizer(tokenizer.Tokenizer):
-    pass
+    def __init__(
+        self,
+        vocabulary=None,
+        dtype="int32",
+        **kwargs,
+    ) -> None:
+        if not is_int_dtype(dtype) and not is_string_dtype(dtype):
+            raise ValueError(
+                "Output dtype must be an integer type or a string. "
+                f"Received: dtype={dtype}"
+            )
+
+        super().__init__(dtype=dtype, **kwargs)
+
+        self.vocabulary = None
+        if vocabulary!=None:
+            self.set_vocabulary(vocabulary)
+        self.file_assets = [VOCAB_FILENAME]
+    def set_vocabulary(self, vocabulary):
+        self.vocabulary = vocabulary
+        self._tokenizer = RWKV_TOKENIZER(vocabulary)
+        self._update_special_token_ids()
+    def save_assets(self, dir_path):
+        path = os.path.join(dir_path, VOCAB_FILENAME)
+        with open(path, "wb") as file:
+            file.write('\n'.join(self.vocabulary))
+    def load_assets(self, dir_path=""):
+        path = os.path.join(dir_path, VOCAB_FILENAME)
+        with open(path, "r", encoding="utf-8") as f:
+            vocabulary = f.readlines()
+        self.set_vocabulary(vocabulary)
+    def _check_vocabulary(self):
+        if self.vocabulary is None:
+            raise ValueError(
+                "No vocabulary has been set for RWKVTokenizer. Make "
+                "sure to pass a `vocabulary` argument when creating the layer."
+            )
+    def vocabulary_size(self):
+        self._check_vocabulary()
+        return int(len(self.vocabulary))
+    def get_vocabulary(self):
+        self._check_vocabulary()
+        return tensor_to_list(self.vocabulary)
+    
+    def id_to_token(self, id):
+        self._check_vocabulary()
+        if id >= self.vocabulary_size() or id < 0:
+            raise ValueError(
+                f"`id` must be in range [0, {self.vocabulary_size() - 1}]. "
+                f"Received: {id}"
+            )
+        return self._tokenizer.idx2token[id]
+    def token_to_id(self, token):
+        """Convert a string token to an integer id."""
+        self._check_vocabulary()
+        return int(self._tokenizer.token2idx[token])
+    def get_config(self):
+        config = super().get_config()
+        config.update(
+            {
+                "vocabulary": None,  # Save vocabulary via an asset!
+            }
+        )
+        return config
+    def tokenize(self, inputs):
+        self._check_vocabulary()
+        tokens = self._tokenizer.encode(inputs)
+        tokens2ids = lambda x:[self.id_to_token(t) for t in x]
+        if is_string_dtype(self.dtype):
+            if isinstance(inputs, str):
+                return tokens2ids(tokens)
+            return [tokens2ids(t) for t in tokens]
+        return tokens
+    
+
+    def detokenize(self, inputs):
+        self._check_vocabulary()
+        return self._tokenizer.decode(inputs)
+    def compute_output_spec(self, input_spec):
+        return keras.KerasTensor(
+            input_spec.shape + (None,), dtype=self.compute_dtype
+        )
+    def call(self, inputs):
+        return self.tokenize(inputs)
