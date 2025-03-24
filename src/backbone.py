@@ -107,3 +107,8 @@ class RWKV7Backbone(Backbone):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+    def enable_state_tuning(self):
+        for weights in self.weights:
+            weights.trainable = False
+        for rwkv_layer in self.rwkv_layers:
+            rwkv_layer.enable_state_tuning()

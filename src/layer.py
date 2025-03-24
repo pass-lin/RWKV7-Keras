@@ -107,6 +107,7 @@ class RWKV7_TimeMix(Layer):
         self.aaa_lora = aaa_lora
         self.decay_lora = decay_lora
         self.kernel_initializer = initializers.get(kernel_initializer)
+        self.initial_state = None
         assert self.hidden_size % self.n_head == 0
 
     def build(self, input_shape):
@@ -220,7 +221,9 @@ class RWKV7_TimeMix(Layer):
         self.output.build(input_shape)
         self.ln_x.build((None, C))
 
-    def call(self, x, v_first=None, padding_mask=None):
+    def call(self, x, v_first=None, padding_mask=None,initial_state=None,):
+        if initial_state == None:
+            initial_state = self.initial_state
         if padding_mask is not None:
             if ops.ndim(padding_mask) == 2:
                 padding_mask = padding_mask[..., None]
@@ -278,6 +281,7 @@ class RWKV7_TimeMix(Layer):
             ops.reshape(v, (B, T, self.n_head, self.head_size)),
             ops.reshape(-kk, (B, T, self.n_head, self.head_size)),
             ops.reshape(kk * a, (B, T, self.n_head, self.head_size)),
+            initial_state=self.initial_state,
         )
 
         x = ops.reshape(x, (B, T, C))
@@ -330,7 +334,17 @@ class RWKV7_TimeMix(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
+    def enable_state_tuning(self):
+        if self.initial_state is None:
+            self._tracker.unlock()
+            H,N=self.n_head,self.head_size
+            self.initial_state = self.add_weight(
+                shape=(1, H, N, N),
+                name="initial_state",
+                initializer="zeros",
+                trainable= True,
+            )
+            self._tracker.lock()
 
 class LayerNorm(keras.layers.LayerNormalization):
     def call(self, inputs):
@@ -437,3 +451,5 @@ class RWKV7_Block(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+    def enable_state_tuning(self):
+        self.att.enable_state_tuning()

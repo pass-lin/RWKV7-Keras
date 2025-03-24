@@ -9,7 +9,7 @@ from src.convertor import *
 from src.layer import *
 from standard_rwkv.rwkv7_layer_demo import *
 
-args.num_layers = 24
+args.num_layers = 2
 keras.config.set_dtype_policy("bfloat16")
 
 standard_RWKV = RWKV(args)
@@ -119,3 +119,5 @@ for i in range(1):
     if not model_is_close:
         pass
         # print(my_backbone_output-standard_backbone_output)
+my_backbone.enable_state_tuning()
+my_backbone.summary()

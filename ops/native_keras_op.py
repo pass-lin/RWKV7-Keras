@@ -34,6 +34,8 @@ def generalized_delta_rule(
     out = ops.zeros((B, T, H, N), dtype="float32")
     if initial_state is not None:
         state = ops.cast(initial_state, "float32")
+        if ops.shape(state)[0] == 1:
+            state = ops.repeat(state,B,axis=0)
     else:
         state = ops.zeros((B, H, N, N), dtype="float32")
 
