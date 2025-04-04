@@ -91,6 +91,7 @@ class RWKV7Backbone(Backbone):
         self.vocabulary_size = vocabulary_size
         self.dropout = dropout
         self.intermediate_dim = intermediate_dim
+        self.call(ops.ones([1,1]),training=False)
 
     def get_config(self):
         config = {
