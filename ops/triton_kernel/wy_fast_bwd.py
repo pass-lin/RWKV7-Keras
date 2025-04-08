@@ -5,8 +5,8 @@
 import triton
 import triton.language as tl
 
-from ops.get_devices_info import is_intel_a770
-from ops.get_devices_info import use_cuda_graph
+from ops.get_torch_devices_info import is_intel_a770
+from ops.get_torch_devices_info import use_cuda_graph
 
 triton_config = {"grf_mode": "large"} if is_intel_a770 else {}
 

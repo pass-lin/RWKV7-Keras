@@ -4,7 +4,7 @@ from typing import Tuple
 import torch
 import triton
 
-from ops.get_devices_info import device_capacity
+from ops.get_torch_devices_info import device_capacity
 from ops.triton_kernel.wy_fast_bwd import bwd_prepare_wy_repr_kernel
 
 
@@ -36,14 +36,10 @@ def chunk_dplr_bwd_wy(
             indices = torch.cat(
                 [
                     torch.arange(n)
-                    for n in triton.cdiv(
-                        offsets[1:] - offsets[:-1], BT
-                    ).tolist()
+                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
                 ]
             )
-            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(
-                offsets
-            )
+            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(offsets)
         NT = len(indices)
     BK = min(triton.next_power_of_2(K), 64)
     BV = (

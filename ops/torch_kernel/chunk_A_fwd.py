@@ -34,12 +34,8 @@ def chunk_fwd_intra_dplr_fn(
     Aqk = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=q.dtype)
     Aqb = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=q.dtype)
     # involving matrix inverse and it'd be better to use float here.
-    Aab = q.new_empty(
-        B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float
-    )
-    Aak = q.new_empty(
-        B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float
-    )
+    Aab = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float)
+    Aak = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float)
     grid = (NT, NC * NC, B * H)
 
     chunk_dplr_fwd_A_kernel_intra_sub_inter[grid](

@@ -40,11 +40,11 @@ def generalized_delta_rule(
 
     def step(state, xs):
         kk, rr, vv, aa, bb, w = xs
-        kk = ops.reshape(kk, (B, H, 1, N))
-        rr = ops.reshape(rr, (B, H, N, 1))
-        vv = ops.reshape(vv, (B, H, N, 1))
-        aa = ops.reshape(aa, (B, H, N, 1))
-        bb = ops.reshape(bb, (B, H, 1, N))
+        kk = ops.expand_dims(kk, -2)
+        rr = ops.expand_dims(rr, -1)
+        vv = ops.expand_dims(vv, -1)
+        aa = ops.expand_dims(aa, -1)
+        bb = ops.expand_dims(bb, -2)
         state = (
             state * ops.expand_dims(w, -2)
             + ops.matmul(state, ops.matmul(aa, bb))
@@ -53,6 +53,10 @@ def generalized_delta_rule(
         out = ops.reshape(ops.matmul(state, rr), (B, H, N))
         return state, out
 
+    if keras.config.backend() == "jax":
+        import jax
+
+        step = jax.checkpoint(step)
     state, out = ops.scan(
         step,
         init=state,

@@ -228,9 +228,7 @@ class RWKV_Tmix_x070(nn.Module):
         init.normal_(self.output.weight, mean=0, std=0.02)
 
         init.normal_(self.ln_x.weight, mean=0, std=0.02)
-        init.normal_(
-            self.ln_x.bias, mean=0, std=0.02
-        )  # !!! notice eps value !!!
+        init.normal_(self.ln_x.bias, mean=0, std=0.02)  # !!! notice eps value !!!
 
     def forward(self, x, v_first=None):
         B, T, C = x.size()
@@ -353,9 +351,7 @@ class RWKV(nn.Module):
         args.dim_ffn = args.n_embd * 4
         self.emb = nn.Embedding(args.vocab_size, args.n_embd)
 
-        self.blocks = nn.ModuleList(
-            [Block(args, i) for i in range(args.n_layer)]
-        )
+        self.blocks = nn.ModuleList([Block(args, i) for i in range(args.n_layer)])
         self.ln_out = nn.LayerNorm(args.n_embd)
         self.head = nn.Linear(args.n_embd, args.vocab_size, bias=False)
 

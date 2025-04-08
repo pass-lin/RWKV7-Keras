@@ -5,14 +5,12 @@
 import triton
 import triton.language as tl
 
-from ops.get_devices_info import use_cuda_graph
+from ops.get_torch_devices_info import use_cuda_graph
 
 
 @triton.heuristics({"USE_OFFSETS": lambda args: args["offsets"] is not None})
 @triton.autotune(
-    configs=[
-        triton.Config({}, num_warps=num_warps) for num_warps in [1, 2, 4, 8, 16]
-    ],
+    configs=[triton.Config({}, num_warps=num_warps) for num_warps in [1, 2, 4, 8, 16]],
     key=["BT"],
     use_cuda_graph=use_cuda_graph,
 )
@@ -78,18 +76,14 @@ def fwd_prepare_wy_repr_kernel_chunk32(
             (1, 0),
         )
     b_A_ab = tl.load(p_Aab, boundary_check=(0, 1))
-    b_A_ab = tl.where(
-        tl.arange(0, BT)[:, None] > tl.arange(0, BT)[None, :], b_A_ab, 0
-    )
+    b_A_ab = tl.where(tl.arange(0, BT)[:, None] > tl.arange(0, BT)[None, :], b_A_ab, 0)
     for i in range(1, BT):
         mask = tl.arange(0, BT) == i
         b_a = tl.sum(tl.where(mask[:, None], b_A_ab, 0), 0)
         b_a = b_a + tl.sum(b_a[:, None] * b_A_ab, 0) * (tl.arange(0, BT) < i)
         b_A_ab = tl.where(mask[:, None], b_a, b_A_ab)
     b_A_ab += tl.arange(0, BT)[:, None] == tl.arange(0, BT)[None, :]
-    tl.store(
-        p_Aab_inv, b_A_ab.to(p_Aab_inv.dtype.element_ty), boundary_check=(0, 1)
-    )
+    tl.store(p_Aab_inv, b_A_ab.to(p_Aab_inv.dtype.element_ty), boundary_check=(0, 1))
 
 
 @triton.heuristics({"USE_OFFSETS": lambda args: args["offsets"] is not None})
@@ -248,12 +242,8 @@ def fwd_prepare_wy_repr_kernel_chunk64(
     b_A = tl.load(p_A1, boundary_check=(0, 1))
     b_A2 = tl.load(p_A2, boundary_check=(0, 1))
     b_A3 = tl.load(p_A3, boundary_check=(0, 1))
-    b_A = tl.where(
-        tl.arange(0, BC)[:, None] > tl.arange(0, BC)[None, :], b_A, 0
-    )
-    b_A2 = tl.where(
-        tl.arange(0, BC)[:, None] > tl.arange(0, BC)[None, :], b_A2, 0
-    )
+    b_A = tl.where(tl.arange(0, BC)[:, None] > tl.arange(0, BC)[None, :], b_A, 0)
+    b_A2 = tl.where(tl.arange(0, BC)[:, None] > tl.arange(0, BC)[None, :], b_A2, 0)
 
     for i in range(1, BC):
         mask = tl.arange(0, BC) == i

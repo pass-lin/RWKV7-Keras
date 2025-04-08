@@ -5,8 +5,8 @@
 import triton
 import triton.language as tl
 
-from ops.get_devices_info import device_capacity
-from ops.get_devices_info import use_cuda_graph
+from ops.get_torch_devices_info import device_capacity
+from ops.get_torch_devices_info import use_cuda_graph
 
 BK_LIST = [64, 128] if device_capacity else [16, 32]
 
@@ -21,9 +21,7 @@ BK_LIST = [64, 128] if device_capacity else [16, 32]
 )
 @triton.autotune(
     configs=[
-        triton.Config(
-            {"BK": BK, "BV": BV}, num_warps=num_warps, num_stages=num_stages
-        )
+        triton.Config({"BK": BK, "BV": BV}, num_warps=num_warps, num_stages=num_stages)
         for BK in BK_LIST
         for BV in BK_LIST
         for num_warps in [2, 4, 8, 16, 32]

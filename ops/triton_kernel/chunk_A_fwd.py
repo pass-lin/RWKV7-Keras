@@ -5,7 +5,7 @@
 import triton
 import triton.language as tl
 
-from ops.get_devices_info import use_cuda_graph
+from ops.get_torch_devices_info import use_cuda_graph
 from ops.triton_kernel.math import exp
 
 
@@ -132,9 +132,7 @@ def chunk_dplr_fwd_A_kernel_intra_sub_inter(
                 (0, 1),
             )
             p_gn = tl.max_contiguous(
-                tl.multiple_of(
-                    gi + (i_bh * T + i_t * BT + i_i * BC - 1) * K + o_k, BK
-                ),
+                tl.multiple_of(gi + (i_bh * T + i_t * BT + i_i * BC - 1) * K + o_k, BK),
                 BK,
             )
         else:
@@ -369,11 +367,7 @@ def chunk_dplr_fwd_A_kernel_intra_sub_intra(
     m_A = (i_t * BT + i_i * BC + tl.arange(0, BC)) < T
     last_idx = min((i_t + 1) * BT, T) - 1
     if HEAD_FIRST:
-        o_A = (
-            i_bh * T * BT
-            + (i_t * BT + i_i * BC + tl.arange(0, BC)) * BT
-            + i_j * BC
-        )
+        o_A = i_bh * T * BT + (i_t * BT + i_i * BC + tl.arange(0, BC)) * BT + i_j * BC
         p_q = tl.make_block_ptr(
             q + i_bh * T * K,
             (T, K),
@@ -511,9 +505,7 @@ def chunk_dplr_fwd_A_kernel_intra_sub_intra(
             (BC, BK),
             (1, 0),
         )
-        p_g_last = (
-            gi + (bos * H + i_h) * K + last_idx * H * K + tl.arange(0, BK)
-        )
+        p_g_last = gi + (bos * H + i_h) * K + last_idx * H * K + tl.arange(0, BK)
         b_g_last = tl.load(p_g_last, mask=m_k, other=0)
         p_qg = tl.make_block_ptr(
             qg + (bos * H + i_h) * K,

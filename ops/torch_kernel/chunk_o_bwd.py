@@ -3,7 +3,7 @@ from typing import Tuple
 
 import torch
 
-from ops.get_devices_info import is_triton_shared_mem_enough
+from ops.get_torch_devices_info import is_triton_shared_mem_enough
 from ops.triton_kernel.chunk_o_bwd import *
 
 
@@ -37,14 +37,10 @@ def chunk_dplr_bwd_o(
             indices = torch.cat(
                 [
                     torch.arange(n)
-                    for n in triton.cdiv(
-                        offsets[1:] - offsets[:-1], BT
-                    ).tolist()
+                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
                 ]
             )
-            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(
-                offsets
-            )
+            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(offsets)
         NT = len(indices)
 
     BK = (
@@ -122,14 +118,10 @@ def chunk_dplr_bwd_dv(
             indices = torch.cat(
                 [
                     torch.arange(n)
-                    for n in triton.cdiv(
-                        offsets[1:] - offsets[:-1], BT
-                    ).tolist()
+                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
                 ]
             )
-            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(
-                offsets
-            )
+            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(offsets)
         NT = len(indices)
 
     dv = torch.empty_like(do)
@@ -178,14 +170,10 @@ def chunk_dplr_bwd_dAu(
             indices = torch.cat(
                 [
                     torch.arange(n)
-                    for n in triton.cdiv(
-                        offsets[1:] - offsets[:-1], BT
-                    ).tolist()
+                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
                 ]
             )
-            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(
-                offsets
-            )
+            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(offsets)
         NT = len(indices)
 
     if is_triton_shared_mem_enough(131072):  # A100

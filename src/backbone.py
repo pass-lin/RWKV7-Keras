@@ -21,7 +21,7 @@ class RWKV7Backbone(Backbone):
         aaa_lora=64,
         decay_lora=64,
         dtype=None,
-        dropout=0,
+        dropout=0.1,
         **kwargs,
     ):
         # === Layers ===
@@ -60,9 +60,7 @@ class RWKV7Backbone(Backbone):
             self.rwkv_layers.append(layer)
 
         # === Functional Model ===
-        token_id_input = keras.Input(
-            shape=(None,), dtype="int32", name="token_ids"
-        )
+        token_id_input = keras.Input(shape=(None,), dtype="int32", name="token_ids")
 
         padding_mask = ops.not_equal(token_id_input, 0)
 
@@ -91,7 +89,7 @@ class RWKV7Backbone(Backbone):
         self.vocabulary_size = vocabulary_size
         self.dropout = dropout
         self.intermediate_dim = intermediate_dim
-        self.call(ops.ones([1,1]),training=False)
+        self.call(ops.ones([1, 1]), training=False)
 
     def get_config(self):
         config = {
@@ -108,6 +106,7 @@ class RWKV7Backbone(Backbone):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
     def enable_state_tuning(self):
         for weights in self.weights:
             weights.trainable = False

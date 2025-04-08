@@ -11,9 +11,9 @@ from typing import Tuple
 import torch
 import triton
 
-from ops.get_devices_info import autocast_custom_bwd
-from ops.get_devices_info import autocast_custom_fwd
-from ops.get_devices_info import custom_device_ctx
+from ops.get_torch_devices_info import autocast_custom_bwd
+from ops.get_torch_devices_info import autocast_custom_fwd
+from ops.get_torch_devices_info import custom_device_ctx
 
 
 def tensor_cache(
@@ -45,8 +45,7 @@ def tensor_cache(
         if last_args is not None and last_kwargs is not None:
             if len(args) == len(last_args) and len(kwargs) == len(last_kwargs):
                 if all(a is b for a, b in zip(args, last_args)) and all(
-                    k in last_kwargs and v is last_kwargs[k]
-                    for k, v in kwargs.items()
+                    k in last_kwargs and v is last_kwargs[k] for k, v in kwargs.items()
                 ):
                     return last_result
 
@@ -64,9 +63,9 @@ def prepare_lens(offsets: torch.LongTensor) -> torch.LongTensor:
 
 @tensor_cache
 def prepare_position_ids(offsets: torch.LongTensor) -> torch.LongTensor:
-    return torch.cat(
-        [torch.arange(n) for n in prepare_lens(offsets).tolist()]
-    ).to(offsets.device)
+    return torch.cat([torch.arange(n) for n in prepare_lens(offsets).tolist()]).to(
+        offsets.device
+    )
 
 
 @tensor_cache
@@ -77,15 +76,13 @@ def prepare_sequence_ids(position_ids: torch.LongTensor) -> torch.LongTensor:
 @tensor_cache
 def prepare_token_indices(offsets: torch.LongTensor) -> torch.LongTensor:
     position_ids = prepare_position_ids(offsets)
-    return torch.stack(
-        [prepare_sequence_ids(position_ids), position_ids], 1
-    ).to(offsets)
+    return torch.stack([prepare_sequence_ids(position_ids), position_ids], 1).to(
+        offsets
+    )
 
 
 @tensor_cache
-def prepare_chunk_offsets(
-    offsets: torch.Tensor, chunk_size: int
-) -> torch.LongTensor:
+def prepare_chunk_offsets(offsets: torch.Tensor, chunk_size: int) -> torch.LongTensor:
     return torch.cat(
         [
             offsets.new_tensor([0]),
@@ -125,9 +122,7 @@ def require_version(version, hint):
                     for i in args
                 ),
                 **{
-                    k: (
-                        v if not isinstance(v, torch.Tensor) else v.contiguous()
-                    )
+                    k: (v if not isinstance(v, torch.Tensor) else v.contiguous())
                     for k, v in kwargs.items()
                 },
             )
@@ -152,8 +147,7 @@ def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
         contiguous_args = (
-            i if not isinstance(i, torch.Tensor) else i.contiguous()
-            for i in args
+            i if not isinstance(i, torch.Tensor) else i.contiguous() for i in args
         )
         contiguous_kwargs = {
             k: (v if not isinstance(v, torch.Tensor) else v.contiguous())

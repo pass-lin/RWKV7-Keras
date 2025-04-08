@@ -70,7 +70,5 @@ def convert_block(my_block, standard_block):
 def convert_backbone(my_backbone, standard_RWKV):
     for i in range(my_backbone.num_layers):
         convert_block(my_backbone.rwkv_layers[i], standard_RWKV.blocks[i])
-    my_backbone.token_embedding.set_weights(
-        [standard_RWKV.emb.weight.detach().cpu()]
-    )
+    my_backbone.token_embedding.set_weights([standard_RWKV.emb.weight.detach().cpu()])
     convert_layernorm(my_backbone.output_layer_norm, standard_RWKV.ln_out)

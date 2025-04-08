@@ -7,8 +7,8 @@ from typing import Tuple
 import torch
 import triton
 
-from ops.get_devices_info import autocast_custom_bwd
-from ops.get_devices_info import autocast_custom_fwd
+from ops.get_torch_devices_info import autocast_custom_bwd
+from ops.get_torch_devices_info import autocast_custom_fwd
 from ops.torch_kernel.chunk import chunk_dplr_fwd
 from ops.torch_kernel.chunk import chunk_rwkv6_fwd_cumsum
 from ops.torch_kernel.chunk_A_bwd import chunk_dplr_bwd_dqk_intra
@@ -51,9 +51,7 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
         # then there are 2 and 4 chunks in the 1st and 2nd sequences respectively, and `indices` will be
         # [[0, 0], [0, 1], [1, 0], [1, 1], [1, 2], [1, 3]]
         indices = (
-            prepare_chunk_indices(offsets, chunk_size)
-            if offsets is not None
-            else None
+            prepare_chunk_indices(offsets, chunk_size) if offsets is not None else None
         )
 
         o, final_state = chunk_dplr_fwd(
@@ -310,10 +308,7 @@ def chunk_dplr_delta_rule(
             raise RuntimeError(
                 "Sequences with variable lengths are not supported for head-first mode"
             )
-        if (
-            initial_state is not None
-            and initial_state.shape[0] != len(cu_seqlens) - 1
-        ):
+        if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
             raise ValueError(
                 f"The number of initial states is expected to be equal to the number of input sequences, "
                 f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."

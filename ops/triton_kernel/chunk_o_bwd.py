@@ -5,8 +5,8 @@
 import triton
 import triton.language as tl
 
-from ops.get_devices_info import device_capacity
-from ops.get_devices_info import use_cuda_graph
+from ops.get_torch_devices_info import device_capacity
+from ops.get_torch_devices_info import use_cuda_graph
 from ops.triton_kernel.math import exp
 
 BK_LIST = [64, 128] if device_capacity else [16, 32]
@@ -202,13 +202,9 @@ def chunk_dplr_bwd_kernel_dAu(
         )
     m_s = tl.arange(0, BT)[:, None] >= tl.arange(0, BT)[None, :]
     b_dA_qk = tl.where(m_s, b_dA_qk * scale, 0.0)
-    tl.store(
-        p_dA_qk, b_dA_qk.to(p_dA_qk.dtype.element_ty), boundary_check=(0, 1)
-    )
+    tl.store(p_dA_qk, b_dA_qk.to(p_dA_qk.dtype.element_ty), boundary_check=(0, 1))
     b_dA_qb = tl.where(m_s, b_dA_qb * scale, 0.0)
-    tl.store(
-        p_dA_qb, b_dA_qb.to(p_dA_qb.dtype.element_ty), boundary_check=(0, 1)
-    )
+    tl.store(p_dA_qb, b_dA_qb.to(p_dA_qb.dtype.element_ty), boundary_check=(0, 1))
 
 
 @triton.heuristics(
@@ -387,9 +383,7 @@ def chunk_dplr_bwd_o_kernel(
 )
 @triton.autotune(
     configs=[
-        triton.Config(
-            {"BK": BK, "BV": BV}, num_warps=num_warps, num_stages=num_stages
-        )
+        triton.Config({"BK": BK, "BV": BV}, num_warps=num_warps, num_stages=num_stages)
         for num_warps in [2, 4, 8, 16, 32]
         for num_stages in [2, 3, 4]
         for BK in BK_LIST

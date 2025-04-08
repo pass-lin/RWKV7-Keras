@@ -10,9 +10,7 @@ class TimeShift(Layer):
         super(TimeShift, self).__init__(name=name)
 
     def call(self, inputs, cache_x=None):
-        x = ops.pad(inputs, [[0, 0], [1, 0], [0, 0]], constant_values=0.0)[
-            :, :-1, :
-        ]
+        x = ops.pad(inputs, [[0, 0], [1, 0], [0, 0]], constant_values=0.0)[:, :-1, :]
         if cache_x is not None:
             x = ops.slice_update(x, [0, 0, 0], cache_x)
         return x
@@ -67,9 +65,7 @@ class RWKV7_ChannelMix(Layer):
     def get_config(self):
         config = {
             "dim_ffn": self.dim_ffn,
-            "kernel_initializer": initializers.serialize(
-                self.kernel_initializer
-            ),
+            "kernel_initializer": initializers.serialize(self.kernel_initializer),
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
@@ -221,7 +217,13 @@ class RWKV7_TimeMix(Layer):
         self.output.build(input_shape)
         self.ln_x.build((None, C))
 
-    def call(self, x, v_first=None, padding_mask=None,initial_state=None,):
+    def call(
+        self,
+        x,
+        v_first=None,
+        padding_mask=None,
+        initial_state=None,
+    ):
         if initial_state == None:
             initial_state = self.initial_state
         if padding_mask is not None:
@@ -243,10 +245,7 @@ class RWKV7_TimeMix(Layer):
         r = self.receptance(xr)
         w = (
             -ops.softplus(
-                -(
-                    self.w0
-                    + ops.matmul(ops.tanh(ops.matmul(xw, self.w1)), self.w2)
-                )
+                -(self.w0 + ops.matmul(ops.tanh(ops.matmul(xw, self.w1)), self.w2))
             )
             - 0.5
         )  # soft-clamp to (-inf, -0.5)
@@ -328,23 +327,23 @@ class RWKV7_TimeMix(Layer):
             "mv_lora": self.mv_lora,
             "aaa_lora": self.aaa_lora,
             "decay_lora": self.decay_lora,
-            "kernel_initializer": initializers.serialize(
-                self.kernel_initializer
-            ),
+            "kernel_initializer": initializers.serialize(self.kernel_initializer),
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
     def enable_state_tuning(self):
         if self.initial_state is None:
             self._tracker.unlock()
-            H,N=self.n_head,self.head_size
+            H, N = self.n_head, self.head_size
             self.initial_state = self.add_weight(
                 shape=(1, H, N, N),
                 name="initial_state",
                 initializer="zeros",
-                trainable= True,
+                trainable=True,
             )
             self._tracker.lock()
+
 
 class LayerNorm(keras.layers.LayerNormalization):
     def call(self, inputs):
@@ -445,11 +444,10 @@ class RWKV7_Block(Layer):
             "decay_lora": self.decay_lora,
             "intermediate_dim": self.intermediate_dim,
             "use_initial_norm": self.use_initial_norm,
-            "kernel_initializer": initializers.serialize(
-                self.kernel_initializer
-            ),
+            "kernel_initializer": initializers.serialize(self.kernel_initializer),
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
     def enable_state_tuning(self):
         self.att.enable_state_tuning()

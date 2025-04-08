@@ -4,8 +4,8 @@ from typing import Tuple
 import torch
 import triton
 
-from ops.get_devices_info import autocast_custom_bwd
-from ops.get_devices_info import autocast_custom_fwd
+from ops.get_torch_devices_info import autocast_custom_bwd
+from ops.get_torch_devices_info import autocast_custom_fwd
 from ops.torch_kernel.utils import input_guard
 from ops.triton_kernel.fused_recurrent import (
     fused_recurrent_dplr_delta_rule_fwd_kernel,
@@ -169,10 +169,7 @@ def fused_recurrent_dplr_delta_rule(
             raise RuntimeError(
                 "Sequences with variable lengths are not supported for head-first mode"
             )
-        if (
-            initial_state is not None
-            and initial_state.shape[0] != len(cu_seqlens) - 1
-        ):
+        if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
             raise ValueError(
                 f"The number of initial states is expected to be equal to the number of input sequences, "
                 f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."

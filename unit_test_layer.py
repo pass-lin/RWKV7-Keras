@@ -46,14 +46,10 @@ for i in range(1):
     my_time_mix_out = my_time_mix(x, padding_mask=mask)
     standard_time_mix_out = standard_time_mix(x)
     time_mix_is_close = bool(
-        ops.all(
-            ops.isclose(my_time_mix_out[0], standard_time_mix_out[0], atol=1e-2)
-        )
+        ops.all(ops.isclose(my_time_mix_out[0], standard_time_mix_out[0], atol=1e-2))
     )
     v_first_is_close = bool(
-        ops.all(
-            ops.isclose(my_time_mix_out[1], standard_time_mix_out[1], atol=1e-2)
-        )
+        ops.all(ops.isclose(my_time_mix_out[1], standard_time_mix_out[1], atol=1e-2))
     )
 
     print(f"tmix check flag :{time_mix_is_close}")
@@ -111,9 +107,7 @@ for i in range(1):
     my_backbone_output = my_backbone(x)
     standard_backbone_output = standard_RWKV(x, True)
     model_is_close = bool(
-        ops.all(
-            ops.isclose(my_backbone_output, standard_backbone_output, atol=1e-1)
-        )
+        ops.all(ops.isclose(my_backbone_output, standard_backbone_output, atol=1e-1))
     )
     print(f"model check flag :{model_is_close}")
     if not model_is_close:

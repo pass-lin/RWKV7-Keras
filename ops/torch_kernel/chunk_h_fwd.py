@@ -7,7 +7,7 @@ from typing import Tuple
 import torch
 import triton
 
-from ops.get_devices_info import is_triton_shared_mem_enough
+from ops.get_torch_devices_info import is_triton_shared_mem_enough
 from ops.torch_kernel.utils import prepare_chunk_offsets
 from ops.triton_kernel.chunk_h_fwd import chunk_dplr_fwd_kernel_h
 
@@ -38,9 +38,7 @@ def chunk_dplr_fwd_h(
         chunk_offsets = prepare_chunk_offsets(offsets, BT)
         NT = chunk_offsets[-1]
     BK = triton.next_power_of_2(K)
-    assert BK <= 256, (
-        "current kernel does not support head dimension larger than 256."
-    )
+    assert BK <= 256, "current kernel does not support head dimension larger than 256."
     # H100 can have larger block size
 
     if is_triton_shared_mem_enough(233472, kg.device.index):
@@ -65,9 +63,7 @@ def chunk_dplr_fwd_h(
     else:
         h = kg.new_empty(B, NT, H, K, V)
     final_state = (
-        kg.new_empty(N, H, K, V, dtype=torch.float32)
-        if output_final_state
-        else None
+        kg.new_empty(N, H, K, V, dtype=torch.float32) if output_final_state else None
     )
     v_new = torch.empty_like(u)
     grid = (NK, NV, N * H)

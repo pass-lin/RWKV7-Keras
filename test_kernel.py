@@ -1,44 +1,67 @@
 import os
 
 os.environ["KERAS_BACKEND"] = "torch"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import numpy as np
 import torch
-
 from keras import ops
 from ops.native_keras_op import generalized_delta_rule as keras_op
 from ops.torch_op import generalized_delta_rule as triton_op
 from standard_rwkv.rwkv7_layer_demo import RWKV7_OP as native_op
 
-native_x = np.random.random([1, 8, 4 * 64])
+T = 1024
+native_x = np.random.random([1, T, 4 * 64])
 x = torch.from_numpy(native_x).cuda().float()
+
+
+def normalize(
+    z,
+    p=2,
+    dim=-1,
+    eps: float = 1e-12,
+):
+    # F.normalize like api
+    denom = ops.norm(z, ord=p, axis=dim, keepdims=True)
+    denom = ops.maximum(denom, 1e-12)
+    return z / denom
+
+
 native_output = (
-    native_op(x, x + 0.1, x + 0.2, x + 0.3, x + 0.4, x + 0.5)
+    native_op(
+        x, -ops.softplus(x * 1), x * 2, x * 3, -normalize(x * 4), normalize(x * 4)
+    )
     .float()
     .cpu()
     .numpy()
 )
+
 x = ops.convert_to_tensor(native_x, dtype="float32")
-z = ops.reshape(x, (1, 8, 4, 64))
-keras_output, state = keras_op(z, z + 0.1, z + 0.2, z + 0.3, z + 0.4, z + 0.5)
+z = ops.reshape(x, (1, T, 4, 64))
+keras_output, state = keras_op(
+    z,
+    -ops.softplus(z * 1),
+    z * 2,
+    z * 3,
+    -ops.reshape(normalize(x * 4), (1, T, 4, 64)),
+    ops.reshape(normalize(x * 4), (1, T, 4, 64)),
+)
 keras_output = ops.reshape(keras_output, native_output.shape)
 keras_output = ops.convert_to_numpy(ops.cast(keras_output, "float32"))
 keras_is_close = ops.all(ops.isclose(native_output, keras_output, rtol=1e-2))
 print(f"keras op check flag :{keras_is_close}")
 
-triton_output, state = triton_op(z, z + 0.1, z + 0.2, z + 0.3, z + 0.4, z + 0.5)
+triton_output, state = triton_op(
+    z,
+    -ops.softplus(z * 1),
+    z * 2,
+    z * 3,
+    -ops.reshape(normalize(x * 4), (1, T, 4, 64)),
+    ops.reshape(normalize(x * 4), (1, T, 4, 64)),
+)
 triton_output = triton_output.float().cpu().numpy()
 triton_output = np.reshape(triton_output, native_output.shape)
 
-triton_torch_is_close = ops.all(
-    ops.isclose(native_output, triton_output, rtol=1e-2)
-)
+triton_torch_is_close = ops.all(ops.isclose(native_output, triton_output, rtol=1e-2))
 print(f"triton and torch op check flag :{triton_torch_is_close}")
-triton_keras_is_close = ops.all(
-    ops.isclose(triton_output, keras_output, rtol=1e-2)
-)
+triton_keras_is_close = ops.all(ops.isclose(triton_output, keras_output, rtol=1e-2))
 print(f"triton and keras op check flag :{triton_keras_is_close}")
-
-triton_output, state = triton_op(
-    z, z + 0.1, z + 0.2, z + 0.3, z + 0.4, z + 0.5, use_chunk=False
-)

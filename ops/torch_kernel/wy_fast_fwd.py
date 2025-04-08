@@ -32,14 +32,10 @@ def fwd_prepare_wy_repr(
             indices = torch.cat(
                 [
                     torch.arange(n)
-                    for n in triton.cdiv(
-                        offsets[1:] - offsets[:-1], BT
-                    ).tolist()
+                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
                 ]
             )
-            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(
-                offsets
-            )
+            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(offsets)
         NT = len(indices)
     BC = min(BT, 32)
     fwd_fn = (
@@ -95,14 +91,10 @@ def fwd_wu(
             indices = torch.cat(
                 [
                     torch.arange(n)
-                    for n in triton.cdiv(
-                        offsets[1:] - offsets[:-1], BT
-                    ).tolist()
+                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
                 ]
             )
-            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(
-                offsets
-            )
+            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(offsets)
         NT = len(indices)
     BK = min(triton.next_power_of_2(K), 64)
     BV = min(triton.next_power_of_2(V), 64)

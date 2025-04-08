@@ -6,6 +6,8 @@ from keras_hub.src.utils.tensor_utils import is_string_dtype
 from keras_hub.src.utils.tensor_utils import tensor_to_list
 
 VOCAB_FILENAME = "vocab.txt"
+
+
 class TRIE:
     __slots__ = tuple("ch,to,values,front".split(","))
     to: list
@@ -146,18 +148,22 @@ class RWKVTokenizer(tokenizer.Tokenizer):
         with open(path, "r", encoding="utf-8") as f:
             vocabulary = f.readlines()
         self.set_vocabulary(vocabulary)
+
     def _check_vocabulary(self):
         if self.vocabulary is None:
             raise ValueError(
                 "No vocabulary has been set for RWKVTokenizer. Make "
                 "sure to pass a `vocabulary` argument when creating the layer."
             )
+
     def vocabulary_size(self):
         self._check_vocabulary()
         return int(len(self.vocabulary))
+
     def get_vocabulary(self):
         self._check_vocabulary()
         return tensor_to_list(self.vocabulary)
+
     def id_to_token(self, id):
         self._check_vocabulary()
         if id >= self.vocabulary_size() or id < 0:
@@ -166,10 +172,12 @@ class RWKVTokenizer(tokenizer.Tokenizer):
                 f"Received: {id}"
             )
         return self._tokenizer.idx2token[id]
+
     def token_to_id(self, token):
         """Convert a string token to an integer id."""
         self._check_vocabulary()
         return int(self._tokenizer.token2idx[token])
+
     def get_config(self):
         config = super().get_config()
         config.update(
@@ -178,6 +186,7 @@ class RWKVTokenizer(tokenizer.Tokenizer):
             }
         )
         return config
+
     def tokenize(self, inputs):
         self._check_vocabulary()
         tokens = self._tokenizer.encode(inputs)

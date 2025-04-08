@@ -3,7 +3,7 @@ from typing import Optional
 import torch
 import triton
 
-from ops.get_devices_info import device_capacity
+from ops.get_torch_devices_info import device_capacity
 from ops.triton_kernel.chunk_A_bwd import *
 
 

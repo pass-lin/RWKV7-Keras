@@ -76,6 +76,7 @@ def chunk_dplr_fwd(
         chunk_size=BT,
         head_first=head_first,
     )
+    
     del ge
 
     # A_ab, A_ak, gi, ge torch.float32
@@ -91,6 +92,7 @@ def chunk_dplr_fwd(
         chunk_size=BT,
     )
     del A_ab, A_ak
+    
     h, v_new, final_state = chunk_dplr_fwd_h(
         kg=kg,
         bg=bg,

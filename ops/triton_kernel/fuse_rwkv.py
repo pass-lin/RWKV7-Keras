@@ -1,7 +1,7 @@
 import triton
 import triton.language as tl
 
-from ops.get_devices_info import use_cuda_graph
+from ops.get_torch_devices_info import use_cuda_graph
 from ops.triton_kernel.math import exp
 
 

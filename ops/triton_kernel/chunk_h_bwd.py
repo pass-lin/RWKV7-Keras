@@ -5,7 +5,7 @@
 import triton
 import triton.language as tl
 
-from ops.get_devices_info import use_cuda_graph
+from ops.get_torch_devices_info import use_cuda_graph
 from ops.triton_kernel.math import exp
 
 
@@ -210,9 +210,7 @@ def chunk_dplr_bwd_kernel_dhu(
             b_do = tl.load(p_do, boundary_check=(0, 1))
             b_dv = tl.load(p_dv, boundary_check=(0, 1))
             b_dv2 = b_dv + tl.dot(b_bg, b_dh.to(b_bg.dtype))
-            tl.store(
-                p_dv2, b_dv2.to(p_dv.dtype.element_ty), boundary_check=(0, 1)
-            )
+            tl.store(p_dv2, b_dv2.to(p_dv.dtype.element_ty), boundary_check=(0, 1))
             # [BK, BV]
             b_dh_tmp += tl.dot(b_qg, b_do.to(b_qg.dtype))
             b_dh_tmp += tl.dot(b_w, b_dv2.to(b_qg.dtype))

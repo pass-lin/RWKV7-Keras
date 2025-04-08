@@ -7,7 +7,7 @@ from typing import Tuple
 import torch
 import triton
 
-from ops.get_devices_info import is_triton_shared_mem_enough
+from ops.get_torch_devices_info import is_triton_shared_mem_enough
 from ops.torch_kernel.utils import prepare_chunk_offsets
 from ops.triton_kernel.chunk_h_bwd import chunk_dplr_bwd_kernel_dhu
 
