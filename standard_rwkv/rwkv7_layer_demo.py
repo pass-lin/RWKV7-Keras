@@ -62,85 +62,30 @@ MyStatic = torch.jit.script
 # CUDA Kernel
 ########################################################################################################
 
-if USE_KERNEL:
-    from torch.utils.cpp_extension import load
+def RWKV7_OP(r, w, k, v, a, b):
+    B, T, C = r.size()
+    H = C // HEAD_SIZE
+    N = HEAD_SIZE
+    r = r.view(B, T, H, N).float()
+    k = k.view(B, T, H, N).float()
+    v = v.view(B, T, H, N).float()
+    a = a.view(B, T, H, N).float()
+    b = b.view(B, T, H, N).float()
+    w = torch.exp(-torch.exp(w.view(B, T, H, N).float()))
+    out = torch.zeros((B, T, H, N), device=r.device, dtype=torch.float)
+    state = torch.zeros((B, H, N, N), device=r.device, dtype=torch.float)
 
-    load(
-        name="wkv7",
-        sources=[
-            "standard_rwkv/cuda/wkv7_op.cpp",
-            "standard_rwkv/cuda/wkv7.cu",
-        ],
-        is_python_module=False,
-        verbose=True,
-        extra_cuda_cflags=[
-            "-res-usage",
-            "--use_fast_math",
-            "-O3",
-            "-Xptxas -O3",
-            "--extra-device-vectorization",
-            f"-D_N_={HEAD_SIZE}",
-        ],
-    )
+    for t in range(T):
+        kk = k[:, t, :].view(B, H, 1, N)
+        rr = r[:, t, :].view(B, H, N, 1)
+        vv = v[:, t, :].view(B, H, N, 1)
+        aa = a[:, t, :].view(B, H, N, 1)
+        bb = b[:, t, :].view(B, H, 1, N)
+        state = state * w[:, t, :, None, :] + state @ aa @ bb + vv @ kk
 
-    class WKV_7(torch.autograd.Function):
-        @staticmethod
-        def forward(ctx, r, w, k, v, a, b):
-            with torch.no_grad():
-                B, T, C = r.size()
-                H = C // HEAD_SIZE
-                N = HEAD_SIZE
-                assert HEAD_SIZE == C // H
-                assert r.dtype == DTYPE
-                assert w.dtype == DTYPE
-                assert k.dtype == DTYPE
-                assert v.dtype == DTYPE
-                assert a.dtype == DTYPE
-                assert b.dtype == DTYPE
-                assert r.is_contiguous()
-                assert w.is_contiguous()
-                assert k.is_contiguous()
-                assert v.is_contiguous()
-                assert a.is_contiguous()
-                assert b.is_contiguous()
-                y = torch.empty(
-                    (B, T, C),
-                    device=k.device,
-                    dtype=DTYPE,
-                    memory_format=torch.contiguous_format,
-                )
-                torch.ops.wkv7.forward(B, T, C, H, r, w, k, v, a, b, y)
-                return y
+        out[:, t, :] = (state @ rr).view(B, H, N)
 
-    def RWKV7_OP(r, w, k, v, a, b):
-        return WKV_7.apply(r, w, k, v, a, b)
-
-else:
-
-    def RWKV7_OP(r, w, k, v, a, b):
-        B, T, C = r.size()
-        H = C // HEAD_SIZE
-        N = HEAD_SIZE
-        r = r.view(B, T, H, N).float()
-        k = k.view(B, T, H, N).float()
-        v = v.view(B, T, H, N).float()
-        a = a.view(B, T, H, N).float()
-        b = b.view(B, T, H, N).float()
-        w = torch.exp(-torch.exp(w.view(B, T, H, N).float()))
-        out = torch.zeros((B, T, H, N), device=r.device, dtype=torch.float)
-        state = torch.zeros((B, H, N, N), device=r.device, dtype=torch.float)
-
-        for t in range(T):
-            kk = k[:, t, :].view(B, H, 1, N)
-            rr = r[:, t, :].view(B, H, N, 1)
-            vv = v[:, t, :].view(B, H, N, 1)
-            aa = a[:, t, :].view(B, H, N, 1)
-            bb = b[:, t, :].view(B, H, 1, N)
-            state = state * w[:, t, :, None, :] + state @ aa @ bb + vv @ kk
-
-            out[:, t, :] = (state @ rr).view(B, H, N)
-
-        return out.view(B, T, C).to(dtype=DTYPE)
+    return out.view(B, T, C).to(dtype=DTYPE)
 
 ########################################################################################################
 # RWKV TimeMix
