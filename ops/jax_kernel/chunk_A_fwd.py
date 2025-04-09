@@ -74,7 +74,7 @@ def chunk_fwd_intra_dplr_fn(
     BK = triton.next_power_of_2(K)
     grid = (NT, NC, B * H)
 
-    qg = jnp.empty_like(q)
+    qg = jnp.empty_like(q, dtype="float32")
     kg = jnp.empty_like(k, dtype=q.dtype)
     ag = jnp.empty_like(a, dtype=q.dtype)
     bg = jnp.empty_like(b, dtype=q.dtype)

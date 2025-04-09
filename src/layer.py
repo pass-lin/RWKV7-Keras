@@ -79,7 +79,7 @@ class GroupNorm(keras.layers.GroupNormalization):
             return F.group_norm(
                 inputs, self.groups, self.gamma, self.beta, self.epsilon
             )
-        return super.call(inputs)
+        return super().call(inputs)
 
 
 class RWKV7_TimeMix(Layer):

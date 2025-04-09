@@ -62,9 +62,9 @@ def chunk_dplr_fwd_h(
     )
 
     if head_first:
-        h = jnp.empty((B, H, NT, K, V))
+        h = jnp.empty((B, H, NT, K, V), dtype="float32")
     else:
-        h = jnp.empty((B, NT, H, K, V))
+        h = jnp.empty((B, NT, H, K, V), dtype="float32")
     final_state = jnp.empty([N, H, K, V], dtype="float32")
     v_new = jnp.empty_like(u, dtype=u.dtype)
     grid = (NK, NV, N * H)

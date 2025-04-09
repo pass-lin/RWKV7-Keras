@@ -62,6 +62,7 @@ MyStatic = torch.jit.script
 # CUDA Kernel
 ########################################################################################################
 
+
 def RWKV7_OP(r, w, k, v, a, b):
     B, T, C = r.size()
     H = C // HEAD_SIZE
