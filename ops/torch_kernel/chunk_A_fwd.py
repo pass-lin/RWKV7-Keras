@@ -31,7 +31,7 @@ def chunk_fwd_intra_dplr_fn(
     BC = min(16, BT)
     NC = triton.cdiv(BT, BC)
 
-    Aqk = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=q.dtype)
+    Aqk = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float)
     Aqb = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=q.dtype)
     # involving matrix inverse and it'd be better to use float here.
     Aab = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float)
@@ -62,7 +62,7 @@ def chunk_fwd_intra_dplr_fn(
     )
     grid = (NT, NC, B * H)
     BK = triton.next_power_of_2(K)
-    qg = torch.empty_like(q)
+    qg = torch.empty_like(q, dtype=q.dtype)
     kg = torch.empty_like(k, dtype=q.dtype)
     ag = torch.empty_like(a, dtype=q.dtype)
     bg = torch.empty_like(b, dtype=q.dtype)

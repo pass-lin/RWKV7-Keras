@@ -1,4 +1,3 @@
-from typing import Optional
 from typing import Tuple
 
 import jax
@@ -21,8 +20,8 @@ def chunk_dplr_bwd_wy(
     dv0: jax.Array,
     offsets=None,
     indices=None,
-    head_first: bool=True,
-    chunk_size: int=64,
+    head_first: bool = True,
+    chunk_size: int = 64,
 ) -> Tuple[jax.Array, jax.Array, jax.Array]:
     if head_first:
         B, H, T, K, V = *dw.shape, du.shape[-1]

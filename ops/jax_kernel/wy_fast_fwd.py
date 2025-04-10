@@ -17,8 +17,8 @@ def fwd_wu(
     A_ab_inv: jax.Array,
     offsets=None,
     indices=None,
-    head_first: bool=True,
-    chunk_size: int=64,
+    head_first: bool = True,
+    chunk_size: int = 64,
 ) -> Tuple[jax.Array, jax.Array]:
     if head_first:
         B, H, T, K, V = *ag.shape, v.shape[-1]

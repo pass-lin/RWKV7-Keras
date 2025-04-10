@@ -32,7 +32,7 @@ def chunk_fwd_intra_dplr_fn(
     NC = triton.cdiv(BT, BC)
 
     shape = [B, *((H, T) if head_first else (T, H)), BT]
-    Aqk = jnp.empty(shape, dtype=q.dtype)
+    Aqk = jnp.empty(shape, dtype="float32")
     Aqb = jnp.empty(shape, dtype=q.dtype)
     # involving matrix inverse and it'd be better to use float here.
     Aab = jnp.empty(shape, dtype="float32")
@@ -74,7 +74,7 @@ def chunk_fwd_intra_dplr_fn(
     BK = triton.next_power_of_2(K)
     grid = (NT, NC, B * H)
 
-    qg = jnp.empty_like(q, dtype="float32")
+    qg = jnp.empty_like(q, dtype=q.dtype)
     kg = jnp.empty_like(k, dtype=q.dtype)
     ag = jnp.empty_like(a, dtype=q.dtype)
     bg = jnp.empty_like(b, dtype=q.dtype)

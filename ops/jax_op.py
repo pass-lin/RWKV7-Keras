@@ -1,15 +1,17 @@
 from ops.jax_kernel.chunk import *
-def chunk_dplr_delta_rule(
+
+
+def chunk_dplr_delta_rule_fwd(
     q: jax.Array,
     k: jax.Array,
     v: jax.Array,
     a: jax.Array,
     b: jax.Array,
     gk: jax.Array,
-    scale: Optional[float] = None,
-    initial_state: Optional[jax.Array] = None,
+    scale=None,
+    initial_state=None,
     output_final_state: bool = False,
-    cu_seqlens = None,
+    cu_seqlens=None,
     head_first: bool = False,
 ):
     r"""
@@ -71,34 +73,36 @@ def chunk_dplr_delta_rule(
     chunk_size = 16
 
     o, final_state = chunk_dplr_fwd(
-        q,
-        k,
-        v,
-        a,
-        b,
-        gk,
-        scale,
-        initial_state,
-        output_final_state,
+        q=q,
+        k=k,
+        v=v,
+        a=a,
+        b=b,
+        gk=gk,
+        scale=scale,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
         chunk_size=chunk_size,
         head_first=head_first,
     )
     return o, final_state
-@jax.jit
+
+
 def cal_log_w(w: jax.Array) -> jax.Array:
     return -jnp.exp(w)
-def chunk_rwkv7(
+
+@jax.custom_vjp
+def chunk_dplr(
     r: jax.Array,
     k: jax.Array,
     v: jax.Array,
     a: jax.Array,
     b: jax.Array,
-    w: jax.Array = None,
-    log_w: jax.Array = None,
+    gk: jax.Array ,
     scale: float = 1.0,
     initial_state: jax.Array = None,
     output_final_state: bool = True,
-    cu_seqlens  = None,
+    cu_seqlens=None,
     head_first: bool = False,
 ):
     """
@@ -133,21 +137,114 @@ def chunk_rwkv7(
             whether to use head first. Recommended to be False to avoid extra transposes.
     """
 
-    if w is not None:
-        log_w = cal_log_w(w)
-    else:
-        assert log_w is not None, "Either w or log_w must be provided!"
-    scale = k.shape[-1] ** -0.5 if scale is None else scale
-    return chunk_dplr_delta_rule(
+
+    return chunk_dplr_delta_rule_fwd(
         q=r,
         k=k,
         v=v,
         a=a,
         b=b,
-        gk=log_w,
+        gk=gk,
         scale=scale,
         initial_state=initial_state,
         output_final_state=output_final_state,
         cu_seqlens=cu_seqlens,
         head_first=head_first,
     )
+def chunk_dplr_fwd_jax(
+    r: jax.Array,
+    k: jax.Array,
+    v: jax.Array,
+    a: jax.Array,
+    b: jax.Array,
+    gk: jax.Array = None,
+    scale: float = 1.0,
+    initial_state: jax.Array = None,
+    output_final_state: bool = True,
+    cu_seqlens=None,
+    head_first: bool = False,
+):
+    result = chunk_dplr(
+        r=r,
+        k=k,
+        v=v,
+        a=a,
+        b=b,
+        gk=gk,
+        scale=scale,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        cu_seqlens=cu_seqlens,
+        head_first=head_first,
+    )
+    cache = (r,k,v,a,b,gk,initial_state,head_first,scale)
+    return result,cache
+def chunk_dplr_bwd_jax(cache,gradient):
+    do,dht = gradient
+    q,k,v,a,b,gk,initial_state,head_first,scale = cache
+    return  chunk_dplr_bwd(
+        q,
+        k,
+        v,
+        a,
+        b,
+        gk,
+        initial_state,
+        head_first,
+        scale,
+        do,
+        dht,
+    )
+chunk_dplr.defvjp(chunk_dplr_fwd_jax,chunk_dplr_bwd_jax)
+def generalized_delta_rule(
+    r: jax.Array,
+    w: jax.Array,
+    k: jax.Array,
+    v: jax.Array,
+    a: jax.Array,
+    b: jax.Array,
+    initial_state: jax.Array = None,
+    output_final_state: bool = True,
+    head_first: bool = False,
+    use_chunk: bool = True,
+):
+    """
+    Args:
+        r (jax.Array):
+            r of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+        k (jax.Array):
+            k of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+        v (jax.Array):
+            v of shape `[B, H, T, V]` if `head_first=True` else `[B, T, H, V]`.
+        a (jax.Array):
+            a of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+        b (jax.Array):
+            b of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+        w (jax.Array):
+            decay of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`, kernel
+            will apply log_w = -torch.exp(w)
+        initial_state (Optional[jax.Array]):
+            Initial state of shape `[N, H, K, V]` for `N` input sequences.
+            For equal-length input sequences, `N` equals the batch size `B`.
+            Default: `None`.
+        output_final_state (Optional[bool]):
+            Whether to output the final state of shape `[N, H, K, V]`. Default: `False`.
+        head_first (bool):
+            whether to use head first. Recommended to be False to avoid extra transposes.
+    """
+    if w is not None:
+        log_w = cal_log_w(w)
+    else:
+        assert log_w is not None, "Either w or log_w must be provided!"
+    scale = k.shape[-1] ** -0.5 if scale is None else scale
+    return chunk_dplr(
+            r=r,
+            k=k,
+            v=v,
+            a=a,
+            b=b,
+            gk=log_w,
+            initial_state=initial_state,
+            output_final_state=output_final_state,
+            head_first=head_first,
+        )

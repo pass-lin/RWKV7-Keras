@@ -9,20 +9,11 @@ import triton
 
 from ops.get_torch_devices_info import autocast_custom_bwd
 from ops.get_torch_devices_info import autocast_custom_fwd
-from ops.torch_kernel.chunk import chunk_dplr_fwd
-from ops.torch_kernel.chunk import chunk_rwkv6_fwd_cumsum
-from ops.torch_kernel.chunk_A_bwd import chunk_dplr_bwd_dqk_intra
-from ops.torch_kernel.chunk_A_fwd import chunk_fwd_intra_dplr_fn
-from ops.torch_kernel.chunk_h_bwd import chunk_dplr_bwd_dhu
-from ops.torch_kernel.chunk_h_fwd import chunk_dplr_fwd_h
-from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_dAu
-from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_dv
-from ops.torch_kernel.chunk_o_bwd import chunk_dplr_bwd_o
+from ops.torch_kernel.chunk import chunk_dplr_fwd, chunk_dplr_bwd
+
 from ops.torch_kernel.fused_recurrent import fused_recurrent_dplr_delta_rule
 from ops.torch_kernel.utils import input_guard
 from ops.torch_kernel.utils import prepare_chunk_indices
-from ops.torch_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
-from ops.torch_kernel.wy_fast_fwd import fwd_prepare_wy_repr
 from ops.triton_kernel.fuse_rwkv import fused_rwkv7_kernel
 
 
@@ -87,160 +78,21 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
         offsets = ctx.offsets
         indices = ctx.indices
         scale = ctx.scale
-
-        # ******* start recomputing everything, otherwise i believe the gpu memory will be exhausted *******
-        gi, ge = chunk_rwkv6_fwd_cumsum(
-            gk, BT, offsets=offsets, indices=indices, head_first=head_first
-        )
-
-        A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_fwd_intra_dplr_fn(
+        return chunk_dplr_bwd(
             q=q,
             k=k,
+            v=v,
             a=a,
             b=b,
-            gi=gi,
-            ge=ge,
-            scale=scale,
-            offsets=offsets,
-            indices=indices,
-            chunk_size=BT,
-            head_first=head_first,
-        )
-        w, u, A_ab_inv = fwd_prepare_wy_repr(
-            ag=ag,
-            A_ab=A_ab,
-            A_ak=A_ak,
-            v=v,
-            offsets=offsets,
-            indices=indices,
-            head_first=head_first,
-            chunk_size=BT,
-        )
-        del A_ab
-        h, v_new, _ = chunk_dplr_fwd_h(
-            kg=kg,
-            bg=bg,
-            v=v,
-            w=w,
-            u=u,
-            gk=gi,
+            gk=gk,
             initial_state=initial_state,
-            offsets=offsets,
+            BT=BT,
             head_first=head_first,
-            chunk_size=BT,
-        )
-        del u
-        # ******* end of recomputation *******
-        # A_ak, A_ab_inv, gi, ge torch.float32
-        # A_qk, A_qb, qg, kg, ag, bg, v_new dtype=q.dtype, eg: bf16
-
-        dv_new_intra, dA_qk, dA_qb = chunk_dplr_bwd_dAu(
-            v=v,
-            v_new=v_new,
-            do=do,
-            A_qb=A_qb,
             scale=scale,
-            offsets=offsets,
-            indices=indices,
-            head_first=head_first,
-            chunk_size=BT,
-        )
-
-        dh, dh0, dv_new = chunk_dplr_bwd_dhu(
-            qg=qg,
-            bg=bg,
-            w=w,
-            gk=gi,
-            h0=initial_state,
+            do=do,
             dht=dht,
-            do=do,
-            dv=dv_new_intra,
-            offsets=offsets,
-            head_first=head_first,
-            chunk_size=BT,
-        )
-
-        dv = chunk_dplr_bwd_dv(
-            A_qk=A_qk,
-            kg=kg,
-            do=do,
-            dh=dh,
             offsets=offsets,
             indices=indices,
-            head_first=head_first,
-            chunk_size=BT,
-        )
-        del A_qk
-
-        dqg, dkg, dw, dbg, dgk_last = chunk_dplr_bwd_o(
-            k=kg,
-            b=bg,
-            v=v,
-            v_new=v_new,
-            do=do,
-            h=h,
-            dh=dh,
-            dv=dv_new,
-            w=w,
-            gk=gi,
-            offsets=offsets,
-            indices=indices,
-            chunk_size=BT,
-            scale=scale,
-            head_first=head_first,
-        )
-        del v_new
-
-        dA_ab, dA_ak, dv, dag = chunk_dplr_bwd_wy(
-            A_ab_inv=A_ab_inv,
-            A_ak=A_ak,
-            v=v,
-            ag=ag,
-            dw=dw,
-            du=dv_new,
-            dv0=dv,
-            offsets=offsets,
-            indices=indices,
-            head_first=head_first,
-            chunk_size=BT,
-        )
-        del A_ak
-
-        dq, dk, da, db, dgk = chunk_dplr_bwd_dqk_intra(
-            q=q,
-            k=k,
-            a=a,
-            b=b,
-            gi=gi,
-            ge=ge,
-            dAqk=dA_qk,
-            dAqb=dA_qb,
-            dAak=dA_ak,
-            dAab=dA_ab,
-            dgk_last=dgk_last,
-            dqg=dqg,
-            dkg=dkg,
-            dag=dag,
-            dbg=dbg,
-            chunk_size=BT,
-            scale=scale,
-            head_first=head_first,
-            offsets=offsets,
-            indices=indices,
-        )
-
-        return (
-            dq.to(q),
-            dk.to(k),
-            dv.to(v),
-            da.to(a),
-            db.to(b),
-            dgk.to(gk),
-            None,
-            dh0,
-            None,
-            None,
-            None,
         )
 
 
@@ -328,7 +180,7 @@ def chunk_dplr_delta_rule(
         cu_seqlens,
         head_first,
     )
-    return o, final_state
+    return o.to(q.dtype), final_state
 
 
 @torch.compile(fullgraph=True)
