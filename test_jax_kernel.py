@@ -148,16 +148,3 @@ flag = np.allclose(ln_jax_out, ln_torch_out, atol=0.03, rtol=1e-2)
 print(f"ln函数的校验结果是:{flag}")
 
 
-import jax
-grad = jax.grad(chunk_dplr)(
-    r=jax_inputs[0],
-    k=jax_inputs[1],
-    v=jax_inputs[2],
-    a=-normalize(jax_inputs[3]),
-    b=normalize(jax_inputs[3]),
-    gk=-ops.exp(-ops.softplus(jax_inputs[5])),
-    scale=1,
-    initial_state=None,
-    output_final_state=True,
-    head_first=False,
-)
