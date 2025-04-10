@@ -20,7 +20,9 @@ from ops.jax_kernel.chunk_o_bwd import (
 )
 from ops.jax_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
 from ops.triton_kernel.chunk import chunk_rwkv6_fwd_cumsum_kernel
+
 CHUNKSIZE = 16
+
 
 def chunk_rwkv6_fwd_cumsum(
     g: jax.Array,
@@ -215,7 +217,7 @@ def chunk_dplr_bwd(
     # ******* end of recomputation *******
     # A_ak, A_ab_inv, gi, ge torch.float32
     # A_qk, A_qb, qg, kg, ag, bg, v_new dtype=q.dtype, eg: bf16
-    
+
     dv_new_intra, dA_qk, dA_qb = chunk_dplr_bwd_dAu(
         v=v,
         v_new=v_new,
@@ -227,7 +229,6 @@ def chunk_dplr_bwd(
         head_first=head_first,
         chunk_size=BT,
     )
-
 
     dh, dh0, dv_new = chunk_dplr_bwd_dhu(
         qg=qg,
@@ -242,7 +243,7 @@ def chunk_dplr_bwd(
         head_first=head_first,
         chunk_size=BT,
     )
-    
+
     dv = chunk_dplr_bwd_dv(
         A_qk=A_qk,
         kg=kg,
@@ -253,7 +254,7 @@ def chunk_dplr_bwd(
         head_first=head_first,
         chunk_size=BT,
     )
-    
+
     del A_qk
 
     dqg, dkg, dw, dbg, dgk_last = chunk_dplr_bwd_o(
@@ -273,7 +274,7 @@ def chunk_dplr_bwd(
         scale=scale,
         head_first=head_first,
     )
-    
+
     del v_new
 
     dA_ab, dA_ak, dv, dag = chunk_dplr_bwd_wy(
@@ -316,12 +317,12 @@ def chunk_dplr_bwd(
     )
 
     return (
-        jnp.asarray(dq, dtype = DTYPE),
-        jnp.asarray(dk, dtype = DTYPE),
-        jnp.asarray(dv, dtype = DTYPE),
-        jnp.asarray(da, dtype = DTYPE),
-        jnp.asarray(db, dtype = DTYPE),
-        jnp.asarray(dgk, dtype = DTYPE),
+        jnp.asarray(dq, dtype=DTYPE),
+        jnp.asarray(dk, dtype=DTYPE),
+        jnp.asarray(dv, dtype=DTYPE),
+        jnp.asarray(da, dtype=DTYPE),
+        jnp.asarray(db, dtype=DTYPE),
+        jnp.asarray(dgk, dtype=DTYPE),
         None,
         dh0,
         None,

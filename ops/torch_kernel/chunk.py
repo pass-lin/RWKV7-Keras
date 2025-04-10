@@ -207,7 +207,6 @@ def chunk_dplr_bwd(
         head_first=head_first,
         chunk_size=BT,
     )
-    
 
     dh, dh0, dv_new = chunk_dplr_bwd_dhu(
         qg=qg,
@@ -222,7 +221,6 @@ def chunk_dplr_bwd(
         head_first=head_first,
         chunk_size=BT,
     )
-    
 
     dv = chunk_dplr_bwd_dv(
         A_qk=A_qk,
@@ -234,7 +232,7 @@ def chunk_dplr_bwd(
         head_first=head_first,
         chunk_size=BT,
     )
-    
+
     del A_qk
 
     dqg, dkg, dw, dbg, dgk_last = chunk_dplr_bwd_o(
@@ -297,12 +295,12 @@ def chunk_dplr_bwd(
     )
 
     return (
-        dq.to(dtype = DTYPE),
-        dk.to(dtype = DTYPE),
-        dv.to(dtype = DTYPE),
-        da.to(dtype = DTYPE),
-        db.to(dtype = DTYPE),
-        dgk.to(dtype = DTYPE),
+        dq.to(dtype=DTYPE),
+        dk.to(dtype=DTYPE),
+        dv.to(dtype=DTYPE),
+        da.to(dtype=DTYPE),
+        db.to(dtype=DTYPE),
+        dgk.to(dtype=DTYPE),
         None,
         dh0,
         None,

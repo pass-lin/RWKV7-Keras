@@ -91,6 +91,7 @@ def chunk_dplr_delta_rule_fwd(
 def cal_log_w(w: jax.Array) -> jax.Array:
     return -jnp.exp(w)
 
+
 @jax.custom_vjp
 def chunk_dplr(
     r: jax.Array,
@@ -98,7 +99,7 @@ def chunk_dplr(
     v: jax.Array,
     a: jax.Array,
     b: jax.Array,
-    gk: jax.Array ,
+    gk: jax.Array,
     scale: float = 1.0,
     initial_state: jax.Array = None,
     output_final_state: bool = True,
@@ -137,7 +138,6 @@ def chunk_dplr(
             whether to use head first. Recommended to be False to avoid extra transposes.
     """
 
-
     return chunk_dplr_delta_rule_fwd(
         q=r,
         k=k,
@@ -151,6 +151,8 @@ def chunk_dplr(
         cu_seqlens=cu_seqlens,
         head_first=head_first,
     )
+
+
 def chunk_dplr_fwd_jax(
     r: jax.Array,
     k: jax.Array,
@@ -177,12 +179,14 @@ def chunk_dplr_fwd_jax(
         cu_seqlens=cu_seqlens,
         head_first=head_first,
     )
-    cache = (r,k,v,a,b,gk,initial_state,head_first,scale)
-    return result,cache
-def chunk_dplr_bwd_jax(cache,gradient):
-    do,dht = gradient
-    q,k,v,a,b,gk,initial_state,head_first,scale = cache
-    return  chunk_dplr_bwd(
+    cache = (r, k, v, a, b, gk, initial_state, head_first, scale)
+    return result, cache
+
+
+def chunk_dplr_bwd_jax(cache, gradient):
+    do, dht = gradient
+    q, k, v, a, b, gk, initial_state, head_first, scale = cache
+    return chunk_dplr_bwd(
         q,
         k,
         v,
@@ -195,7 +199,11 @@ def chunk_dplr_bwd_jax(cache,gradient):
         do,
         dht,
     )
-chunk_dplr.defvjp(chunk_dplr_fwd_jax,chunk_dplr_bwd_jax)
+
+
+chunk_dplr.defvjp(chunk_dplr_fwd_jax, chunk_dplr_bwd_jax)
+
+
 def generalized_delta_rule(
     r: jax.Array,
     w: jax.Array,
@@ -238,13 +246,13 @@ def generalized_delta_rule(
         assert log_w is not None, "Either w or log_w must be provided!"
     scale = k.shape[-1] ** -0.5 if scale is None else scale
     return chunk_dplr(
-            r=r,
-            k=k,
-            v=v,
-            a=a,
-            b=b,
-            gk=log_w,
-            initial_state=initial_state,
-            output_final_state=output_final_state,
-            head_first=head_first,
-        )
+        r=r,
+        k=k,
+        v=v,
+        a=a,
+        b=b,
+        gk=log_w,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        head_first=head_first,
+    )

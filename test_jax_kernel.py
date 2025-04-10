@@ -46,8 +46,9 @@ inputs = [np.random.randn(B, T, H, K) for _ in range(30)]
 dht = np.random.randn(B, T, H, T)
 d0 = np.random.randn(B, H, T, T)
 h = np.random.randn(B, 8, H, T, T)
-from ops.jax_kernel.chunk import chunk_dplr_bwd,CHUNKSIZE
+from ops.jax_kernel.chunk import chunk_dplr_bwd, CHUNKSIZE
 from ops.torch_kernel.chunk import chunk_dplr_bwd as torch_chunk_dplr_bwd
+
 inputs = [np.random.randn(B, T, H, K) for _ in range(30)]
 jax_inputs = [ops.convert_to_tensor(t, dtype="float32") for t in inputs]
 torch_inputs = [torch.from_numpy(t).float().cuda() for t in inputs]
@@ -59,9 +60,9 @@ output_jax = chunk_dplr_bwd(
     b=normalize(jax_inputs[3]),
     gk=-ops.exp(-ops.softplus(jax_inputs[5])),
     scale=1,
-    do = ops.convert_to_tensor(d0, dtype=jax_inputs[0].dtype),
+    do=ops.convert_to_tensor(d0, dtype=jax_inputs[0].dtype),
     dht=ops.convert_to_tensor(dht, dtype=jax_inputs[0].dtype),
-    initial_state = None,
+    initial_state=None,
     head_first=False,
 )
 output_torch = torch_chunk_dplr_bwd(
@@ -72,10 +73,10 @@ output_torch = torch_chunk_dplr_bwd(
     b=F.normalize(torch_inputs[3], dim=-1, p=2.0),
     gk=-torch.exp(-F.softplus(torch_inputs[5])),
     scale=1,
-    do = torch.from_numpy(d0).to(torch_inputs[0]),
-    dht= torch.from_numpy(dht).to(torch_inputs[0]),
+    do=torch.from_numpy(d0).to(torch_inputs[0]),
+    dht=torch.from_numpy(dht).to(torch_inputs[0]),
     BT=CHUNKSIZE,
-    initial_state = None,
+    initial_state=None,
     head_first=False,
 )
 
@@ -146,5 +147,3 @@ ln_jax_out = ops.convert_to_numpy(ops.cast(ln_jax_out, "float32"))
 ln_torch_out = ln_torch_out.float().detach().cpu().numpy()
 flag = np.allclose(ln_jax_out, ln_torch_out, atol=0.03, rtol=1e-2)
 print(f"ln函数的校验结果是:{flag}")
-
-
