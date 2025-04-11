@@ -11,7 +11,7 @@
 | Torch 后端使用 Triton 算子       | √    |
 | 实现keras_hub风格的RWKV tokenizer | √    |
 | 添加state tuning功能 |  √   |
-| Jax 后端使用 Triton 算子或 CUDA 算子 | x    |
+| Jax 后端使用 Triton 算子或 CUDA 算子 | √    |
 | 转换现成的 RWKV 模型以及转换脚本 | x    |
 | RWKV 推理模块                     | x    |
 | RWKV 推理模块测试                 | x    |

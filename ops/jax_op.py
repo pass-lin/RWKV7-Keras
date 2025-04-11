@@ -1,4 +1,5 @@
 from ops.jax_kernel.chunk import *
+from functools import partial
 
 
 def chunk_dplr_delta_rule_fwd(
@@ -10,7 +11,7 @@ def chunk_dplr_delta_rule_fwd(
     gk: jax.Array,
     scale=None,
     initial_state=None,
-    output_final_state: bool = False,
+    output_final_state: bool = True,
     cu_seqlens=None,
     head_first: bool = False,
 ):
@@ -100,11 +101,7 @@ def chunk_dplr(
     a: jax.Array,
     b: jax.Array,
     gk: jax.Array,
-    scale: float = 1.0,
     initial_state: jax.Array = None,
-    output_final_state: bool = True,
-    cu_seqlens=None,
-    head_first: bool = False,
 ):
     """
     Args:
@@ -145,11 +142,11 @@ def chunk_dplr(
         a=a,
         b=b,
         gk=gk,
-        scale=scale,
+        scale=1,
         initial_state=initial_state,
-        output_final_state=output_final_state,
-        cu_seqlens=cu_seqlens,
-        head_first=head_first,
+        output_final_state=True,
+        cu_seqlens=None,
+        head_first=False,
     )
 
 
@@ -159,34 +156,30 @@ def chunk_dplr_fwd_jax(
     v: jax.Array,
     a: jax.Array,
     b: jax.Array,
-    gk: jax.Array = None,
-    scale: float = 1.0,
+    gk: jax.Array,
     initial_state: jax.Array = None,
-    output_final_state: bool = True,
-    cu_seqlens=None,
-    head_first: bool = False,
 ):
-    result = chunk_dplr(
-        r=r,
+    o, state = chunk_dplr_delta_rule_fwd(
+        q=r,
         k=k,
         v=v,
         a=a,
         b=b,
         gk=gk,
-        scale=scale,
+        scale=1,
         initial_state=initial_state,
-        output_final_state=output_final_state,
-        cu_seqlens=cu_seqlens,
-        head_first=head_first,
+        output_final_state=True,
+        cu_seqlens=None,
+        head_first=False,
     )
-    cache = (r, k, v, a, b, gk, initial_state, head_first, scale)
-    return result, cache
+    cache = (r, k, v, a, b, gk, initial_state)
+    return [o, state], cache
 
 
-def chunk_dplr_bwd_jax(cache, gradient):
-    do, dht = gradient
-    q, k, v, a, b, gk, initial_state, head_first, scale = cache
-    return chunk_dplr_bwd(
+def chunk_dplr_bwd_jax(res, g):
+    q, k, v, a, b, gk, initial_state = res
+    do, dht = g
+    dq, dk, dv, da, db, dgk, _, dh0, _, _, _ = chunk_dplr_bwd(
         q,
         k,
         v,
@@ -194,16 +187,34 @@ def chunk_dplr_bwd_jax(cache, gradient):
         b,
         gk,
         initial_state,
-        head_first,
-        scale,
-        do,
-        dht,
+        head_first=False,
+        scale=1,
+        do=do,
+        dht=dht,
+    )
+
+    return (
+        dq,
+        dk,
+        dv,
+        da,
+        db,
+        dgk,
+        dh0,
     )
 
 
 chunk_dplr.defvjp(chunk_dplr_fwd_jax, chunk_dplr_bwd_jax)
 
 
+def transpose_head(x, head_first):
+    if head_first:
+        return jnp.transpose(x, (0, 2, 1, 3))
+    else:
+        return x
+
+
+# @partial(jax.jit, static_argnames=['initial_state',"output_final_state","head_first","use_chunk"])
 def generalized_delta_rule(
     r: jax.Array,
     w: jax.Array,
@@ -214,7 +225,6 @@ def generalized_delta_rule(
     initial_state: jax.Array = None,
     output_final_state: bool = True,
     head_first: bool = False,
-    use_chunk: bool = True,
 ):
     """
     Args:
@@ -240,12 +250,18 @@ def generalized_delta_rule(
         head_first (bool):
             whether to use head first. Recommended to be False to avoid extra transposes.
     """
+    r = transpose_head(r, head_first)
+    k = transpose_head(k, head_first)
+    v = transpose_head(v, head_first)
+    a = transpose_head(a, head_first)
+    b = transpose_head(b, head_first)
+
     if w is not None:
         log_w = cal_log_w(w)
     else:
         assert log_w is not None, "Either w or log_w must be provided!"
-    scale = k.shape[-1] ** -0.5 if scale is None else scale
-    return chunk_dplr(
+    log_w = transpose_head(log_w, head_first)
+    o, final_state = chunk_dplr(
         r=r,
         k=k,
         v=v,
@@ -253,6 +269,7 @@ def generalized_delta_rule(
         b=b,
         gk=log_w,
         initial_state=initial_state,
-        output_final_state=output_final_state,
-        head_first=head_first,
     )
+    if output_final_state:
+        return o, final_state
+    return o

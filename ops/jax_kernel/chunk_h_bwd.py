@@ -35,10 +35,10 @@ def chunk_dplr_bwd_dhu(
         "current kernel does not support head dimension being larger than 256."
     )
     # H100
-    if is_triton_shared_mem_enough(233472, jax.devices().index(qg.device)):
+    if is_triton_shared_mem_enough(233472, 0):
         BV = 64
         BC = 64 if K <= 128 else 32
-    elif is_triton_shared_mem_enough(131072, jax.devices().index(qg.device)):  # A100
+    elif is_triton_shared_mem_enough(131072, 0):  # A100
         BV = 32
         BC = 32
     else:  # Etc: 4090

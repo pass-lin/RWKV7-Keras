@@ -23,8 +23,12 @@ def test_output(output_jax, output_torch):
         out_jax = ops.convert_to_numpy(ops.cast(output_jax[i], "float32"))
         out_torch = output_torch[i].float().cpu().numpy()
         flag = np.allclose(out_jax, out_torch, rtol=1e-2, atol=0.03)
+        
         print(f"第{i + 1}个输出函数的校验结果是:{flag}")
-
+        if np.sum(np.isnan(out_jax)):
+            print("存在NAN值")
+        else:
+            print("不存在NAN值")
 
 def normalize(
     z,
