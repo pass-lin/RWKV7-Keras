@@ -309,15 +309,17 @@ class RWKV7_TimeMix(Layer):
 
     def normalize(
         self,
-        z,
-        p=2,
-        dim=-1,
+        x,
         eps: float = 1e-12,
     ):
         # F.normalize like api
-        denom = ops.norm(z, ord=p, axis=dim, keepdims=True)
-        denom = ops.maximum(denom, 1e-12)
-        return z / denom
+        
+        square_sum = ops.sum(
+            ops.square(x), axis=-1, keepdims=True
+        )
+        inv_norm = ops.rsqrt(square_sum + eps)
+        inv_norm = ops.maximum(inv_norm, eps)
+        return x * inv_norm
 
     def get_config(self):
         config = {
