@@ -41,15 +41,11 @@ def fwd_wu(
     BK = min(triton.next_power_of_2(K), 64)
     BV = min(triton.next_power_of_2(V), 64)
 
-    u = jnp.zeros_like(v)
-    w = jnp.zeros_like(ag)
     out_shapes = [
-        jax.ShapeDtypeStruct([], u.dtype),
-        jax.ShapeDtypeStruct([], w.dtype),
+        jax.ShapeDtypeStruct(v.shape, v.dtype),
+        jax.ShapeDtypeStruct(ag.shape, ag.dtype),
     ]
-    jt.triton_call(
-        u,
-        w,
+    w, u = jt.triton_call(
         ag,
         v,
         A_ab_inv,
@@ -107,10 +103,8 @@ def fwd_prepare_wy_repr(
         if BT == 64
         else fwd_prepare_wy_repr_kernel_chunk32
     )
-    A_ab_inv = jnp.zeros_like(A_ab)
-    jt.triton_call(
+    A_ab_inv = jt.triton_call(
         A_ab,
-        A_ab_inv,
         offsets=offsets,
         indices=indices,
         T=T,
@@ -121,7 +115,7 @@ def fwd_prepare_wy_repr(
         USE_OFFSETS=offsets is not None,
         grid=(int(NT), int(B * H)),
         kernel=fwd_fn.fn,
-        out_shape=[jax.ShapeDtypeStruct([], A_ab_inv.dtype)],
+        out_shape=jax.ShapeDtypeStruct(A_ab.shape, A_ab.dtype),
     )
     w, u = fwd_wu(
         ag=ag,

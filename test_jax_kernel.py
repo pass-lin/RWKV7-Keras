@@ -22,13 +22,14 @@ def test_output(output_jax, output_torch):
             continue
         out_jax = ops.convert_to_numpy(ops.cast(output_jax[i], "float32"))
         out_torch = output_torch[i].float().cpu().numpy()
-        flag = np.allclose(out_jax, out_torch, rtol=1e-2, atol=0.03)
-        
+        flag = np.allclose(out_jax, out_torch, rtol=1e-3, atol=1e-3)
+
         print(f"第{i + 1}个输出函数的校验结果是:{flag}")
         if np.sum(np.isnan(out_jax)):
             print("存在NAN值")
         else:
             print("不存在NAN值")
+
 
 def normalize(
     z,
@@ -87,8 +88,8 @@ output_torch = torch_chunk_dplr_bwd(
 print("校验chunk_dplr_fwd_bwd函数")
 test_output(output_jax, output_torch)
 
-jax_inputs = [ops.convert_to_tensor(t, dtype="bfloat16") for t in inputs]
-torch_inputs = [torch.from_numpy(t).bfloat16().cuda() for t in inputs]
+jax_inputs = [ops.convert_to_tensor(t, dtype="float32") for t in inputs]
+torch_inputs = [torch.from_numpy(t).float().cuda() for t in inputs]
 
 from ops.jax_op import chunk_dplr
 
@@ -100,10 +101,7 @@ output_jax = chunk_dplr(
     a=-normalize(jax_inputs[3]),
     b=normalize(jax_inputs[3]),
     gk=-ops.exp(-ops.softplus(jax_inputs[5])),
-    scale=1,
     initial_state=None,
-    output_final_state=True,
-    head_first=False,
 )
 
 from ops.torch_kernel.chunk import chunk_dplr_fwd as torch_chunk_dplr_fwd
@@ -149,5 +147,5 @@ ln_torch_out = ln_torch(output_torch[0].view(B * T, -1).float())
 
 ln_jax_out = ops.convert_to_numpy(ops.cast(ln_jax_out, "float32"))
 ln_torch_out = ln_torch_out.float().detach().cpu().numpy()
-flag = np.allclose(ln_jax_out, ln_torch_out, atol=0.03, rtol=1e-2)
+flag = np.allclose(ln_jax_out, ln_torch_out, atol=1e-4, rtol=1e-4)
 print(f"ln函数的校验结果是:{flag}")

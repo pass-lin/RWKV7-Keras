@@ -3,7 +3,6 @@
 
 
 import jax
-import jax.numpy as jnp
 import jax_triton as jt
 import triton
 from ops.triton_kernel.chunk_A_fwd import *
@@ -32,32 +31,23 @@ def chunk_fwd_intra_dplr_fn(
     NC = triton.cdiv(BT, BC)
 
     shape = [B, *((H, T) if head_first else (T, H)), BT]
-    Aqk = jnp.empty(shape, dtype="float32")
-    Aqb = jnp.empty(shape, dtype=q.dtype)
-    # involving matrix inverse and it'd be better to use float here.
-    Aab = jnp.empty(shape, dtype="float32")
-    Aak = jnp.empty(shape, dtype="float32")
     grid = (int(NT), int(NC * NC), int(B * H))
 
     out_shapes = [
-        jax.ShapeDtypeStruct([], Aqk.dtype),
-        jax.ShapeDtypeStruct([], Aqb.dtype),
-        jax.ShapeDtypeStruct([], Aab.dtype),
-        jax.ShapeDtypeStruct([], Aak.dtype),
+        jax.ShapeDtypeStruct(shape, q.dtype),
+        jax.ShapeDtypeStruct(shape, q.dtype),
+        jax.ShapeDtypeStruct(shape, "float32"),
+        jax.ShapeDtypeStruct(shape, "float32"),
     ]
-    jt.triton_call(
+    Aqk, Aqb, Aab, Aak = jt.triton_call(
         q,
         k,
         a,
         b,
         gi,  # cumsum
         ge,  # before cumsum
-        Aqk,
-        Aqb,
-        Aab,
-        Aak,
-        offsets,  # 明确命名参数
-        indices,
+        offsets=offsets,  # 明确命名参数
+        indices=indices,
         scale=scale,
         T=T,
         H=H,
@@ -74,27 +64,25 @@ def chunk_fwd_intra_dplr_fn(
     BK = triton.next_power_of_2(K)
     grid = (NT, NC, B * H)
 
-    qg = jnp.empty_like(q, dtype=q.dtype)
-    kg = jnp.empty_like(k, dtype=q.dtype)
-    ag = jnp.empty_like(a, dtype=q.dtype)
-    bg = jnp.empty_like(b, dtype=q.dtype)
-    jt.triton_call(
+    out_shapes = [
+        jax.ShapeDtypeStruct(q.shape, q.dtype),
+        jax.ShapeDtypeStruct(k.shape, q.dtype),
+        jax.ShapeDtypeStruct(a.shape, q.dtype),
+        jax.ShapeDtypeStruct(b.shape, q.dtype),
+    ]
+    qg, kg, ag, bg = jt.triton_call(
         q,
         k,
         a,
         b,
         gi,
         ge,
-        qg,
-        kg,
-        ag,
-        bg,
         Aqk,
         Aqb,
         Aab,
         Aak,
-        offsets,  # 明确命名参数
-        indices,
+        offsets=offsets,  # 明确命名参数
+        indices=indices,
         scale=scale,
         T=T,
         H=H,

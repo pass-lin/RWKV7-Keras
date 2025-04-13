@@ -3,7 +3,6 @@
 from typing import Optional
 
 import jax
-import jax.numpy as jnp
 import jax_triton as jt
 import triton
 from ops.triton_kernel.chunk_h_bwd import chunk_dplr_bwd_kernel_dhu
@@ -60,30 +59,25 @@ def chunk_dplr_bwd_dhu(
     )
 
     if head_first:
-        dh = jnp.empty([B, H, NT, K, V])
+        dh_shape = [B, H, NT, K, V]
     else:
-        dh = jnp.empty([B, NT, H, K, V])
-    dh0 = jnp.empty_like(dv, dtype="float32")
-    dv2 = jnp.empty_like(dv)
-
+        dh_shape = [B, NT, H, K, V]
     grid = (int(NK), int(NV), int(N * H))
     out_shapes = [
-        jax.ShapeDtypeStruct([], dv2.dtype),
-        jax.ShapeDtypeStruct([], dv2.dtype),
-        jax.ShapeDtypeStruct([], dv2.dtype),
+        jax.ShapeDtypeStruct(dh_shape, dv.dtype),
+        jax.ShapeDtypeStruct(dv.shape, "float32"),
+        jax.ShapeDtypeStruct(dv.shape, dv.dtype),
     ]
-    jt.triton_call(
+    dh, dh0, dv2 = jt.triton_call(
         qg,
         bg,
         w,
         gk,
         dht,
-        dh0,
         do,
-        dh,
         dv,
-        dv2,
-        offsets,  # 明确命名参数
+        offsets=None,  # 明确命名参数
+        chunk_offsets=None,
         T=T,
         H=H,
         K=K,
@@ -95,7 +89,7 @@ def chunk_dplr_bwd_dhu(
         HEAD_FIRST=head_first,
         USE_OFFSETS=offsets is not None,
         USE_FINAL_STATE_GRADIENT=dht is not None,
-        USE_INITIAL_STATE=dh0 is not None,
+        USE_INITIAL_STATE=h0 is not None,
         grid=grid,
         out_shape=out_shapes,
         kernel=chunk_dplr_bwd_kernel_dhu.fn,

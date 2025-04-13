@@ -38,24 +38,18 @@ def chunk_rwkv6_fwd_cumsum(
     BT = chunk_size
     NT = triton.cdiv(T, BT) if offsets is None else len(indices)
 
-    gi, ge = (
-        jnp.empty_like(g, dtype="float32"),
-        jnp.empty_like(g, dtype="float32"),
-    )
     out_shapes = [
-        jax.ShapeDtypeStruct([], gi.dtype),
-        jax.ShapeDtypeStruct([], ge.dtype),
+        jax.ShapeDtypeStruct(g.shape, "float32"),
+        jax.ShapeDtypeStruct(g.shape, "float32"),
     ]
 
     def grid(meta):
         return (triton.cdiv(meta["S"], meta["BS"]), NT, B * H)
 
-    jt.triton_call(
+    gi, ge = jt.triton_call(
         g,
-        gi,
-        ge,
-        offsets,
-        indices,
+        offsets=offsets,
+        indices=indices,
         T=T,
         H=H,
         S=S,

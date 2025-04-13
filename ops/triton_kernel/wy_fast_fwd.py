@@ -295,12 +295,12 @@ def fwd_prepare_wy_repr_kernel_chunk64(
 )
 @triton.jit(do_not_specialize=["T"])
 def fwd_wu_kernel(
-    u,
-    w,
     ag,
     v,
     A_ab_inv,
     A_ak,
+    w,
+    u,
     offsets,
     indices,
     T,

@@ -1,5 +1,4 @@
 from ops.jax_kernel.chunk import *
-from functools import partial
 
 
 def chunk_dplr_delta_rule_fwd(

@@ -47,28 +47,20 @@ def chunk_dplr_bwd_wy(
         else min(triton.next_power_of_2(V), 32)
     )
 
-    dA_ab = jnp.empty_like(A_ab_inv, dtype="float32")
-    dA_ak = jnp.empty_like(A_ak, dtype="float32")
-    dv = jnp.empty_like(v)
-    dag = jnp.empty_like(ag)
     out_shapes = [
-        jax.ShapeDtypeStruct([], dA_ab.dtype),
-        jax.ShapeDtypeStruct([], dA_ak.dtype),
-        jax.ShapeDtypeStruct([], dv.dtype),
-        jax.ShapeDtypeStruct([], dag.dtype),
+        jax.ShapeDtypeStruct(A_ak.shape, "float32"),
+        jax.ShapeDtypeStruct(A_ab_inv.shape, "float32"),
+        jax.ShapeDtypeStruct(v.shape, v.dtype),
+        jax.ShapeDtypeStruct(ag.shape, ag.dtype),
     ]
-    jt.triton_call(
+    dA_ak, dA_ab, dv, dag = jt.triton_call(
         A_ab_inv,
         A_ak,
         ag,
         v,
         dw,
         du,
-        dv,
         dv0,
-        dag,
-        dA_ak,
-        dA_ab,
         offsets=offsets,
         indices=indices,
         T=T,

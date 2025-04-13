@@ -3,7 +3,6 @@
 
 
 import jax
-import jax.numpy as jnp
 import jax_triton as jt
 import triton
 
@@ -29,22 +28,16 @@ def chunk_dplr_fwd_o(
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
     NT = triton.cdiv(T, BT) if offsets is None else len(indices)
 
-    o = jnp.empty_like(v)
-    out_shapes = [
-        jax.ShapeDtypeStruct([], v_new.dtype),
-    ]
-
     def grid(meta):
         return (triton.cdiv(V, meta["BV"]), NT, B * H)
 
-    jt.triton_call(
+    o = jt.triton_call(
         qg,
         v,
         v_new,
         A_qk,
         A_qb,
         h,
-        o,
         offsets=offsets,
         indices=indices,
         T=T,
@@ -55,7 +48,7 @@ def chunk_dplr_fwd_o(
         HEAD_FIRST=head_first,
         USE_OFFSETS=offsets is not None,
         grid=grid,
-        out_shape=out_shapes,
+        out_shape=jax.ShapeDtypeStruct(v.shape, v.dtype),
         kernel=chunk_dplr_fwd_kernel_o.fn,
     )
     return o

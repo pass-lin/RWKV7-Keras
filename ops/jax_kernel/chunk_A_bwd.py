@@ -1,5 +1,4 @@
 import jax
-import jax.numpy as jnp
 import jax_triton as jt
 import triton
 from ops.get_jax_devices_info import device_capacity
@@ -44,26 +43,19 @@ def chunk_dplr_bwd_dqk_intra(
     NC = triton.cdiv(BT, BC)
     NK = triton.cdiv(K, BK)
 
-    dq = jnp.empty_like(q)
-    dk = jnp.empty_like(k)
-    da = jnp.empty_like(a)
-    db = jnp.empty_like(b)
-    dgk = jnp.empty_like(gi, dtype="float32")
-    dgk_offset = jnp.empty_like(gi, dtype="float32")
-
     grid = (int(NK), int(NT * NC), int(B * H))
     # 定义输出形状结构
     out_shapes = [
-        jax.ShapeDtypeStruct([], dq.dtype),
-        jax.ShapeDtypeStruct([], dk.dtype),
-        jax.ShapeDtypeStruct([], da.dtype),
-        jax.ShapeDtypeStruct([], db.dtype),
-        jax.ShapeDtypeStruct([], dgk.dtype),
-        jax.ShapeDtypeStruct([], dgk_offset.dtype),
+        jax.ShapeDtypeStruct(q.shape, q.dtype),
+        jax.ShapeDtypeStruct(k.shape, k.dtype),
+        jax.ShapeDtypeStruct(a.shape, a.dtype),
+        jax.ShapeDtypeStruct(b.shape, b.dtype),
+        jax.ShapeDtypeStruct(gi.shape, "float32"),
+        jax.ShapeDtypeStruct(gi.shape, "float32"),
     ]
 
     # 调用第一个内核
-    jt.triton_call(
+    dq, dk, da, db, dgk, dgk_offset = jt.triton_call(
         q,
         k,
         a,
@@ -74,18 +66,12 @@ def chunk_dplr_bwd_dqk_intra(
         dAqb,
         dAak,
         dAab,
-        dq,
-        dk,
-        da,
-        db,
         dqg,
         dkg,
         dag,
         dbg,
-        dgk,
-        dgk_offset,
-        offsets,
-        indices,
+        offsets=offsets,
+        indices=indices,
         scale=scale,
         T=T,
         H=H,
@@ -103,14 +89,12 @@ def chunk_dplr_bwd_dqk_intra(
         num_stages=3,
     )
 
-    dgk_output = jnp.empty_like(dgk)
     grid2 = (int(NT), int(triton.cdiv(K, BK)), int(B * H))
 
-    jt.triton_call(
+    dgk_output = jt.triton_call(
         dgk,
         dgk_offset,
         dgk_last,
-        dgk_output,
         offsets=offsets,  # 明确命名参数
         indices=indices,
         T=T,  # 显式传递标量参数
@@ -121,7 +105,7 @@ def chunk_dplr_bwd_dqk_intra(
         USE_OFFSETS=offsets is not None,
         HEAD_FIRST=head_first,
         kernel=chunk_dplr_bwd_dgk_kernel.fn,
-        out_shape=jax.ShapeDtypeStruct([], dq.dtype),  # 单输出结构
+        out_shape=jax.ShapeDtypeStruct(dgk.shape, dgk.dtype),  # 单输出结构
         grid=grid2,
         num_warps=4,
         num_stages=3,

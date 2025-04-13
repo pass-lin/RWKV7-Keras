@@ -62,31 +62,27 @@ def chunk_dplr_fwd_h(
     )
 
     if head_first:
-        h = jnp.empty((B, H, NT, K, V), dtype=kg.dtype)
+        h_shape = (B, H, NT, K, V)
     else:
-        h = jnp.empty((B, NT, H, K, V), dtype=kg.dtype)
-    final_state = jnp.empty([N, H, K, V], dtype="float32")
-    v_new = jnp.empty_like(u, dtype=u.dtype)
+        h_shape = (B, NT, H, K, V)
     grid = (NK, NV, N * H)
     out_shapes = [
-        jax.ShapeDtypeStruct([], v_new.dtype),
-        jax.ShapeDtypeStruct([], v_new.dtype),
-        jax.ShapeDtypeStruct([], v_new.dtype),
+        jax.ShapeDtypeStruct(h_shape, kg.dtype),
+        jax.ShapeDtypeStruct([N, H, K, V], "float32"),
+        jax.ShapeDtypeStruct(u.shape, u.dtype),
     ]
     if initial_state == None:
         initial_state = jnp.zeros([N, H, K, V], dtype="float32")
-    jt.triton_call(
+    h, final_state, v_new = jt.triton_call(
         kg,
         v,
         w,
         bg,
         u,
-        v_new,
         gk,
-        h,
         initial_state,
-        final_state,
-        offsets,
+        offsets=offsets,
+        chunk_offsets=None,
         T=T,
         H=H,
         K=K,

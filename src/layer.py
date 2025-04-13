@@ -313,10 +313,8 @@ class RWKV7_TimeMix(Layer):
         eps: float = 1e-12,
     ):
         # F.normalize like api
-        
-        square_sum = ops.sum(
-            ops.square(x), axis=-1, keepdims=True
-        )
+
+        square_sum = ops.sum(ops.square(x), axis=-1, keepdims=True)
         inv_norm = ops.rsqrt(square_sum + eps)
         inv_norm = ops.maximum(inv_norm, eps)
         return x * inv_norm

@@ -57,38 +57,25 @@ def chunk_dplr_bwd_o(
         else min(triton.next_power_of_2(K), 32)
     )
     NK = triton.cdiv(K, BK)
-    dq = jnp.empty_like(k)
-    dk = jnp.empty_like(k)
-    dw = jnp.empty_like(w)
-    db = jnp.empty_like(b)
     grid = (NK, NT, B * H)
 
-    dgk_last = (
-        jnp.empty([B, H, NT, K], dtype="float32")
-        if head_first
-        else jnp.empty([B, NT, H, K], dtype="float32")
-    )
+    dgk_last_shape = [B, H, NT, K] if head_first else [B, NT, H, K]
     out_shapes = [
-        jax.ShapeDtypeStruct([], v_new.dtype),
-        jax.ShapeDtypeStruct([], v_new.dtype),
-        jax.ShapeDtypeStruct([], v_new.dtype),
-        jax.ShapeDtypeStruct([], v_new.dtype),
-        jax.ShapeDtypeStruct([], v_new.dtype),
+        jax.ShapeDtypeStruct(k.shape, k.dtype),
+        jax.ShapeDtypeStruct(k.shape, k.dtype),
+        jax.ShapeDtypeStruct(w.shape, w.dtype),
+        jax.ShapeDtypeStruct(b.shape, b.dtype),
+        jax.ShapeDtypeStruct(dgk_last_shape, "float32"),
     ]
-    jt.triton_call(
+    dq, dk, dw, db, dgk_last = jt.triton_call(
         v,
         v_new,
         h,
         do,
         dh,
-        dk,
-        db,
         w,
-        dq,
         dv,
-        dw,
         gk,
-        dgk_last,
         k,
         b,
         offsets=offsets,
@@ -137,16 +124,13 @@ def chunk_dplr_bwd_dv(
             indices = jnp.stack([jnp.cumsum(jnp.equal(indices, 0), 0) - 1, indices], 1)
         NT = len(indices)
 
-    dv = jnp.empty_like(do)
-
     def grid(meta):
         return (triton.cdiv(V, meta["BV"]), NT, B * H)
 
-    jt.triton_call(
+    dv = jt.triton_call(
         A_qk,
         kg,
         do,
-        dv,
         dh,
         offsets=offsets,
         indices=indices,
@@ -158,7 +142,7 @@ def chunk_dplr_bwd_dv(
         HEAD_FIRST=head_first,
         USE_OFFSETS=offsets is not None,
         grid=grid,
-        out_shape=jax.ShapeDtypeStruct([], do.dtype),
+        out_shape=jax.ShapeDtypeStruct(do.shape, do.dtype),
         kernel=chunk_dplr_bwd_kernel_dv.fn,
     )
 
@@ -202,30 +186,17 @@ def chunk_dplr_bwd_dAu(
         BV = min(triton.next_power_of_2(V), 32)
 
     grid = (NT, B * H)
-    dA_qk = (
-        jnp.empty([B, H, T, BT], dtype="float32")
-        if head_first
-        else jnp.empty([B, T, H, BT], dtype="float32")
-    )
-    dA_qb = (
-        jnp.empty([B, H, T, BT], dtype="float32")
-        if head_first
-        else jnp.empty([B, T, H, BT], dtype="float32")
-    )
-    dv_new = jnp.empty_like(v_new)
+    dA_qb_shape = [B, H, T, BT] if head_first else [B, T, H, BT]
     out_shapes = [
-        jax.ShapeDtypeStruct([], v_new.dtype),
-        jax.ShapeDtypeStruct([], v_new.dtype),
-        jax.ShapeDtypeStruct([], v_new.dtype),
+        jax.ShapeDtypeStruct(dA_qb_shape, "float32"),
+        jax.ShapeDtypeStruct(dA_qb_shape, "float32"),
+        jax.ShapeDtypeStruct(v_new.shape, v_new.dtype),
     ]
-    jt.triton_call(
+    dA_qk, dA_qb, dv_new = jt.triton_call(
         v,
         do,
         v_new,
         A_qb,
-        dA_qk,
-        dA_qb,
-        dv_new,
         offsets=offsets,
         indices=indices,
         scale=scale,
