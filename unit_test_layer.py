@@ -2,7 +2,8 @@ import os
 
 os.environ["KERAS_BACKEND"] = "torch"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
-
+from ops import USE_KERNEL
+print("use kernel:"+str(USE_KERNEL))
 from keras import ops
 from src.backbone import *
 from src.convertor import *

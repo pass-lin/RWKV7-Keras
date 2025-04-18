@@ -272,7 +272,7 @@ class RWKV7_TimeMix(Layer):
         k = k * (1 + (a - 1) * self.k_a)
         if padding_mask is not None:
             if USE_KERNEL:
-                v *=  padding_mask
+                v *=  padding_mask[..., None]
             else:
                 w = w * padding_mask + 1 - padding_mask
         # N = self.head_size
