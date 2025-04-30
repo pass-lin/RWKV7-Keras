@@ -6,6 +6,7 @@ if keras.config.backend() == "torch":
 
     if torch.cuda.is_available():
         from ops.torch_op import generalized_delta_rule
+
         USE_KERNEL = True
     else:
         from ops.native_keras_op import generalized_delta_rule
@@ -19,6 +20,7 @@ elif keras.config.backend() == "jax":
     os.environ["TRITON_DISABLE_AUTOTUNE"] = "1"  # 禁用自动调优日志
     if is_nvidia and xla_bridge.get_backend().platform == "gpu":
         from ops.jax_op import generalized_delta_rule
+
         USE_KERNEL = True
     else:
         from ops.native_keras_op import generalized_delta_rule

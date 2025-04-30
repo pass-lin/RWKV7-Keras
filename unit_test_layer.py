@@ -3,7 +3,8 @@ import os
 os.environ["KERAS_BACKEND"] = "torch"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 from ops import USE_KERNEL
-print("use kernel:"+str(USE_KERNEL))
+
+print("use kernel:" + str(USE_KERNEL))
 from keras import ops
 from src.backbone import *
 from src.convertor import *
@@ -115,4 +116,4 @@ for i in range(1):
         pass
         # print(my_backbone_output-standard_backbone_output)
 my_backbone.enable_state_tuning()
-#my_backbone.summary()
+# my_backbone.summary()
