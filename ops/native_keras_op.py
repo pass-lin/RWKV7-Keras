@@ -25,19 +25,22 @@ def generalized_delta_rule(
     B, T, H, N = ops.shape(r)
     C = H * N
     r = ops.cast(transpose_head(r, head_first), "float32")
+    
     k = ops.cast(transpose_head(k, head_first), "float32")
+    
     v = ops.cast(transpose_head(v, head_first), "float32")
     a = ops.cast(transpose_head(a, head_first), "float32")
     b = ops.cast(transpose_head(b, head_first), "float32")
     w = ops.cast(transpose_head(w, head_first), "float32")
     w = ops.exp(-ops.exp(w))
+    
     if initial_state is not None:
         state = ops.cast(initial_state, "float32")
         if ops.shape(state)[0] == 1:
             state = ops.broadcast_to(state, (B, H, N, N))
     else:
         state = ops.zeros((B, H, N, N), dtype="float32")
-
+    import torch
     def step(state, xs):
         kk, rr, vv, aa, bb, w = xs
         kk = ops.expand_dims(kk, -2)
@@ -45,12 +48,8 @@ def generalized_delta_rule(
         vv = ops.expand_dims(vv, -1)
         aa = ops.expand_dims(aa, -1)
         bb = ops.expand_dims(bb, -2)
-        state = (
-            state * ops.expand_dims(w, -2)
-            + ops.matmul(state, ops.matmul(aa, bb))
-            + ops.matmul(vv, kk)
-        )
-        out = ops.reshape(ops.matmul(state, rr), (B, H, N))
+        state = state * w[:, :, None, :] + state @ aa @ bb + vv @ kk
+        out = ops.reshape(state @ rr, (B, H, N))
         return state, out
 
     if keras.config.backend() == "jax":
@@ -70,6 +69,7 @@ def generalized_delta_rule(
         ],
         length=T,
     )
+    
     out = ops.cast(ops.transpose(out, [1, 0, 2, 3]), DTYPE)
     if output_final_state:
         return out, state

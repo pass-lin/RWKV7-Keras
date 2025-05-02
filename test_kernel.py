@@ -26,14 +26,9 @@ def normalize(
     return z / denom
 
 
-native_output = (
-    native_op(
+native_output =  native_op(
         x, -ops.softplus(x * 1), x * 2, x * 3, -normalize(x * 4), normalize(x * 4)
     )
-    .float()
-    .cpu()
-    .numpy()
-)
 
 x = ops.convert_to_tensor(native_x, dtype="float32")
 z = ops.reshape(x, (1, T, 4, 64))
@@ -46,8 +41,7 @@ keras_output, state = keras_op(
     ops.reshape(normalize(x * 4), (1, T, 4, 64)),
 )
 keras_output = ops.reshape(keras_output, native_output.shape)
-keras_output = ops.convert_to_numpy(ops.cast(keras_output, "float32"))
-keras_is_close = ops.all(ops.isclose(native_output, keras_output, rtol=1e-2))
+keras_is_close = ops.all(ops.isclose(native_output, keras_output, rtol=1e-7))
 print(f"keras op check flag :{keras_is_close}")
 
 triton_output, state = triton_op(
@@ -58,10 +52,10 @@ triton_output, state = triton_op(
     -ops.reshape(normalize(x * 4), (1, T, 4, 64)),
     ops.reshape(normalize(x * 4), (1, T, 4, 64)),
 )
-triton_output = triton_output.float().cpu().numpy()
-triton_output = np.reshape(triton_output, native_output.shape)
+triton_output = triton_output.float()
+triton_output = ops.reshape(triton_output, native_output.shape)
 
-triton_torch_is_close = ops.all(ops.isclose(native_output, triton_output, rtol=1e-2))
+triton_torch_is_close = ops.all(ops.isclose(native_output, triton_output, rtol=5e-3))
 print(f"triton and torch op check flag :{triton_torch_is_close}")
-triton_keras_is_close = ops.all(ops.isclose(triton_output, keras_output, rtol=1e-2))
+triton_keras_is_close = ops.all(ops.isclose(triton_output, keras_output, rtol=5e-3))
 print(f"triton and keras op check flag :{triton_keras_is_close}")

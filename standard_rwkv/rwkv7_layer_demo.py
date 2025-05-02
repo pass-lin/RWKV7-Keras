@@ -68,10 +68,13 @@ def RWKV7_OP(r, w, k, v, a, b):
     H = C // HEAD_SIZE
     N = HEAD_SIZE
     r = r.view(B, T, H, N).float()
+    
     k = k.view(B, T, H, N).float()
+    
     v = v.view(B, T, H, N).float()
     a = a.view(B, T, H, N).float()
     b = b.view(B, T, H, N).float()
+    
     w = torch.exp(-torch.exp(w.view(B, T, H, N).float()))
     out = torch.zeros((B, T, H, N), device=r.device, dtype=torch.float)
     state = torch.zeros((B, H, N, N), device=r.device, dtype=torch.float)
@@ -85,8 +88,7 @@ def RWKV7_OP(r, w, k, v, a, b):
         state = state * w[:, t, :, None, :] + state @ aa @ bb + vv @ kk
 
         out[:, t, :] = (state @ rr).view(B, H, N)
-
-    return out.view(B, T, C).to(dtype=DTYPE)
+    return out.view(B, T, C)
 
 
 ########################################################################################################
@@ -212,7 +214,7 @@ class RWKV_Tmix_x070(nn.Module):
 
         k = k * (1 + (a - 1) * self.k_a)
 
-        x = RWKV7_OP(r, w, k, v, -kk, kk * a)
+        x = RWKV7_OP(r, w, k, v, -kk, kk * a).to(DTYPE)
 
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
 

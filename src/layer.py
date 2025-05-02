@@ -350,19 +350,7 @@ class RWKV7_TimeMix(Layer):
 
 
 class LayerNorm(keras.layers.LayerNormalization):
-    def call(self, inputs):
-        if keras.config.backend() == "torch":
-            import torch.nn.functional as F
-
-            return F.layer_norm(
-                inputs,
-                tuple(self.gamma.shape),
-                self.gamma,
-                self.beta,
-                self.epsilon,
-            )
-
-        return super().call(input)
+    pass
 
 
 class RWKV7_Block(Layer):
