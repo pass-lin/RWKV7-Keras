@@ -4,6 +4,12 @@ import os
 from keras import ops
 KERNEL_TYPE = os.environ.get("KERNEL_TYPE", "cuda")
 USE_KERNEL = False
+def transpose_head(x, head_first):
+    if head_first:
+        return ops.transpose(x, (0, 2, 1, 3))
+    else:
+        return x
+
 if keras.config.backend() == "torch":
     import torch
 
@@ -28,8 +34,13 @@ if keras.config.backend() == "torch":
             head_first: bool = False,
             use_chunk: bool = True,
         ):
-            
-            DTYPE = r.dtype
+            r = transpose_head(r, head_first)
+            k = transpose_head(k, head_first)
+            v = transpose_head(v, head_first)
+            a = transpose_head(a, head_first)
+            b = transpose_head(b, head_first)
+            w = transpose_head(w, head_first)
+
 
             HEAD_SIZE = ops.shape(r)[-1]
             flags = ['-res-usage', f'-D_C_={HEAD_SIZE}', f"-D_CHUNK_LEN_={CHUNK_LEN}", "--use_fast_math", "-O3", "-Xptxas -O3", "--extra-device-vectorization"]
