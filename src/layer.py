@@ -2,7 +2,7 @@ import keras
 from keras import initializers
 from keras import ops
 from keras.layers import Layer
-from ops import generalized_delta_rule as RWKV7_OP
+from ops import get_generalized_delta_rule
 from ops import USE_KERNEL
 
 
@@ -105,6 +105,7 @@ class RWKV7_TimeMix(Layer):
         self.decay_lora = decay_lora
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.initial_state = None
+        self.RWKV7_OP = get_generalized_delta_rule(head_size)
         assert self.hidden_size % self.n_head == 0
 
     def build(self, input_shape):
@@ -277,7 +278,7 @@ class RWKV7_TimeMix(Layer):
                 w = w * padding_mask + 1 - padding_mask
         # N = self.head_size
 
-        x, finnal_state = RWKV7_OP(
+        x, finnal_state = self.RWKV7_OP(
             ops.reshape(r, (B, T, self.n_head, self.head_size)),
             ops.reshape(w, (B, T, self.n_head, self.head_size)),
             ops.reshape(k, (B, T, self.n_head, self.head_size)),
