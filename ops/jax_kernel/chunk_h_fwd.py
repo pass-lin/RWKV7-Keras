@@ -43,10 +43,10 @@ def chunk_dplr_fwd_h(
     assert BK <= 256, "current kernel does not support head dimension larger than 256."
     # H100 can have larger block size
 
-    if check_shared_mem("hopper", kg.device):
+    if check_shared_mem("hopper", jax.devices().index(kg.device)):
         BV = 64
         BC = 64 if K <= 128 else 32
-    elif check_shared_mem("ampere", kg.device):  # A100
+    elif check_shared_mem("ampere", jax.devices().index(kg.device)):  # A100
         BV = 32
         BC = 32
     else:

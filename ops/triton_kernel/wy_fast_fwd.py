@@ -16,8 +16,8 @@ from ops.triton_kernel.utils import gather, is_gather_supported, use_cuda_graph
 @triton.jit(do_not_specialize=["T"])
 def prepare_wy_repr_fwd_kernel_chunk32(
     A_ab,
-    A_ab_inv,
     T,
+    A_ab_inv,
     H: tl.constexpr,
     BT: tl.constexpr,
     BC: tl.constexpr,  # placeholder, do not delete

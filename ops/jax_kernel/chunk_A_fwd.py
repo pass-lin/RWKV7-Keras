@@ -33,7 +33,7 @@ def chunk_dplr_fwd_intra(
     NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
     shape = [B, T, H, BT]
     out_shapes = [
-        jax.ShapeDtypeStruct(shape, q.dtype),
+        jax.ShapeDtypeStruct(shape, "float32"),
         jax.ShapeDtypeStruct(shape, q.dtype),
         jax.ShapeDtypeStruct(shape, "float32"),
         jax.ShapeDtypeStruct(shape, "float32"),

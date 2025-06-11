@@ -35,13 +35,12 @@ def chunk_dplr_fwd(
     scale: float,
     initial_state: jax.Array,
     output_final_state: bool,
-    cu_seqlens=None,
-    chunk_size: int = 64,
+    chunk_size: int = 16,
 ):
     T = q.shape[1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
-    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT, cu_seqlens=cu_seqlens)
 
+    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT)
     A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_dplr_fwd_intra(
         q=q,
         k=k,
@@ -50,16 +49,13 @@ def chunk_dplr_fwd(
         gi=gi,
         ge=ge,
         scale=scale,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
     del ge
 
     # A_ab, A_ak, gi, ge torch.float32
     # A_qk, A_qb, qg, kg, ag, bg, dtype=q.dtype, eg: bf16
-    w, u, _ = prepare_wy_repr_fwd(
-        ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, cu_seqlens=cu_seqlens, chunk_size=BT
-    )
+    w, u, _ = prepare_wy_repr_fwd(ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, chunk_size=BT)
 
     del A_ab, A_ak
     h, v_new, final_state = chunk_dplr_fwd_h(
@@ -71,7 +67,6 @@ def chunk_dplr_fwd(
         gk=gi,
         initial_state=initial_state,
         output_final_state=output_final_state,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
 
@@ -84,7 +79,6 @@ def chunk_dplr_fwd(
         A_qk=A_qk,
         A_qb=A_qb,
         h=h,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
     del v_new, h, A_qk, A_qb
@@ -102,7 +96,6 @@ def chunk_dplr_delta_rule_fwd(
     scale=None,
     initial_state=None,
     output_final_state: bool = True,
-    cu_seqlens=None,
 ):
     r"""
     Args:
@@ -127,9 +120,6 @@ def chunk_dplr_delta_rule_fwd(
             Default: `None`.
         output_final_state (Optional[bool]):
             Whether to output the final state of shape `[N, H, K, V]`. Default: `False`.
-        cu_seqlens (torch.LongTensor):
-            Cumulative sequence lengths of shape `[N+1]` used for variable-length training,
-            consistent with the FlashAttention API.
         head_first (Optional[bool]):
             Whether the inputs are in the head-first format, which is not supported for variable-length inputs.
             Default: `False`.
@@ -144,17 +134,6 @@ def chunk_dplr_delta_rule_fwd(
     # assert q.dtype != torch.float32, "ChunkDeltaRuleFunction does not support float32. Please use bfloat16."
     # gk = gk.float()
 
-    if cu_seqlens is not None:
-        if q.shape[0] != 1:
-            raise ValueError(
-                f"The batch size is expected to be 1 rather than {q.shape[0]} when using `cu_seqlens`."
-                f"Please flatten variable-length inputs before processing."
-            )
-        if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
-            raise ValueError(
-                f"The number of initial states is expected to be equal to the number of input sequences, "
-                f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."
-            )
     scale = k.shape[-1] ** -0.5 if scale is None else scale
     chunk_size = CHUNKSIZE
 
@@ -212,9 +191,6 @@ def chunk_dplr(
             Default: `None`.
         output_final_state (Optional[bool]):
             Whether to output the final state of shape `[N, H, K, V]`. Default: `False`.
-        cu_seqlens (torch.LongTensor):
-            Cumulative sequence lengths of shape `[N+1]` used for variable-length training,
-            consistent with the FlashAttention API.
         head_first (bool):
             whether to use head first. Recommended to be False to avoid extra transposes.
     """
@@ -229,7 +205,6 @@ def chunk_dplr(
         scale=1,
         initial_state=initial_state,
         output_final_state=True,
-        cu_seqlens=None,
     )
 
 
@@ -252,7 +227,6 @@ def chunk_dplr_fwd_jax(
         scale=1,
         initial_state=initial_state,
         output_final_state=True,
-        cu_seqlens=None,
     )
     cache = (r, k, v, a, b, gk, initial_state)
     return [o, state], cache
@@ -273,7 +247,6 @@ def chunk_dplr_bwd(
 ):
     DTYPE = do.dtype
     BT = chunk_size
-    cu_seqlens = None
     scale = scale
     if do != None:
         do = ops.cast(do, q.dtype)
@@ -281,7 +254,7 @@ def chunk_dplr_bwd(
         dht = ops.cast(dht, q.dtype)
 
     # ******* start recomputing everything, otherwise i believe the gpu memory will be exhausted *******
-    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT, cu_seqlens=cu_seqlens)
+    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT)
 
     A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_dplr_fwd_intra(
         q=q,
@@ -291,11 +264,10 @@ def chunk_dplr_bwd(
         gi=gi,
         ge=ge,
         scale=scale,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
     w, u, A_ab_inv = prepare_wy_repr_fwd(
-        ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, cu_seqlens=cu_seqlens, chunk_size=BT
+        ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, chunk_size=BT
     )
     del A_ab
     h, v_new, _ = chunk_dplr_fwd_h(
@@ -306,9 +278,9 @@ def chunk_dplr_bwd(
         u=u,
         gk=gi,
         initial_state=initial_state,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
+
     del u
     # ******* end of recomputation *******
     # A_ak, A_ab_inv, gi, ge torch.float32
@@ -320,10 +292,9 @@ def chunk_dplr_bwd(
         do=do,
         A_qb=A_qb,
         scale=scale,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
-
+    return v, v_new, do, A_qb, dv_new_intra, dA_qk, dA_qb
     dh, dh0, dv_new = chunk_dplr_bwd_dhu(
         qg=qg,
         bg=bg,
@@ -333,13 +304,10 @@ def chunk_dplr_bwd(
         dht=dht,
         do=do,
         dv=dv_new_intra,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
 
-    dv = chunk_dplr_bwd_dv(
-        A_qk=A_qk, kg=kg, do=do, dh=dh, cu_seqlens=cu_seqlens, chunk_size=BT
-    )
+    dv = chunk_dplr_bwd_dv(A_qk=A_qk, kg=kg, do=do, dh=dh, chunk_size=BT)
     del A_qk
 
     dqg, dkg, dw, dbg, dgk_last = chunk_dplr_bwd_o(
@@ -353,7 +321,6 @@ def chunk_dplr_bwd(
         dv=dv_new,
         w=w,
         gk=gi,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
         scale=scale,
     )
@@ -367,7 +334,6 @@ def chunk_dplr_bwd(
         dw=dw,
         du=dv_new,
         dv0=dv,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
     del A_ak
@@ -390,7 +356,6 @@ def chunk_dplr_bwd(
         dbg=dbg,
         chunk_size=BT,
         scale=scale,
-        cu_seqlens=cu_seqlens,
     )
 
     return (

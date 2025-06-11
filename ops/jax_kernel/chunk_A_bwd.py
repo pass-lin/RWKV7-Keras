@@ -100,8 +100,8 @@ def chunk_dplr_bwd_dqk_intra(
         K=K,
         BT=BT,
         IS_VARLEN=cu_seqlens is not None,
-        kernel=chunk_dplr_bwd_kernel_intra.fn,
+        kernel=chunk_dplr_bwd_dgk_kernel.fn,
         out_shape=out_shapes,
-        grid=grid,
+        grid=(NT, triton.cdiv(K, BK), B * H),
     )
     return dq, dk, da, db, dgk_output

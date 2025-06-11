@@ -14,7 +14,6 @@ from ops.triton_kernel.utils import (
 BK_LIST = [32, 64, 128] if check_shared_mem() else [16, 32]
 
 
-@triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
 @triton.autotune(
     configs=[
         triton.Config({}, num_warps=num_warps, num_stages=num_stages)
@@ -30,22 +29,19 @@ def chunk_dplr_bwd_kernel_dAu(
     do,
     v_new,
     A_qb,
+    T,
     dA_qk,
     dA_qb,
     dv_new,
-    cu_seqlens,
-    chunk_indices,
     scale: tl.constexpr,
-    T,
     H: tl.constexpr,
     V: tl.constexpr,
     BT: tl.constexpr,
     BV: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
 ):
     i_t, i_bh = tl.program_id(0), tl.program_id(1)
     i_b, i_h = i_bh // H, i_bh % H
-    if IS_VARLEN:
+    if False:
         i_n, i_t = (
             tl.load(chunk_indices + i_t * 2).to(tl.int32),
             tl.load(chunk_indices + i_t * 2 + 1).to(tl.int32),

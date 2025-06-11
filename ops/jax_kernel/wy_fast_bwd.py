@@ -20,16 +20,12 @@ def chunk_dplr_bwd_wy(
     dw: jax.Array,
     du: jax.Array,
     dv0: jax.Array,
-    cu_seqlens,
     chunk_size: int,
 ) -> Tuple[jax.Array, jax.Array, jax.Array]:
     B, T, H, K, V = *dw.shape, du.shape[-1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
     BK = min(triton.next_power_of_2(K), 64)
     BV = (
         min(triton.next_power_of_2(V), 64)
@@ -51,18 +47,15 @@ def chunk_dplr_bwd_wy(
         dw,
         du,
         dv0,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
-        T=T,
+        T,
         H=H,
         K=K,
         V=V,
         BT=BT,
         BK=BK,
         BV=BV,
-        IS_VARLEN=cu_seqlens is not None,
         grid=grid,
-        kernel=prepare_wy_repr_bwd_kernel.fn,
+        kernel=prepare_wy_repr_bwd_kernel,
         out_shape=out_shapes,
     )
     return dA_ab, dA_ak, dv, dag

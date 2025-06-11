@@ -127,15 +127,11 @@ def chunk_dplr_bwd_dAu(
     do: jax.Array,
     A_qb: jax.Array,
     scale: float,
-    cu_seqlens=None,
     chunk_size: int = 64,
 ) -> jax.Array:
     B, T, H, V = v.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
     if check_shared_mem("ampere"):  # A100
         BV = min(triton.next_power_of_2(V), 128)
@@ -145,24 +141,24 @@ def chunk_dplr_bwd_dAu(
         BV = min(triton.next_power_of_2(V), 32)
 
     grid = (NT, B * H)
-    dA_qk = torch.empty(B, T, H, BT, dtype=torch.float, device=v.device)
-    dA_qb = torch.empty(B, T, H, BT, dtype=torch.float, device=v.device)
-    dv_new = torch.empty_like(v_new)
-    chunk_dplr_bwd_kernel_dAu[grid](
-        v=v,
-        do=do,
-        v_new=v_new,
-        A_qb=A_qb,
-        dA_qk=dA_qk,
-        dA_qb=dA_qb,
-        dv_new=dv_new,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
+    out_shapes = [
+        jax.ShapeDtypeStruct([B, T, H, BT], "float32"),
+        jax.ShapeDtypeStruct([B, T, H, BT], "float32"),
+        jax.ShapeDtypeStruct(v_new.shape, v_new.dtype),
+    ]
+    dA_qk, dA_qb, dv_new = jt.triton_call(
+        v,
+        do,
+        v_new,
+        A_qb,
+        T,
         scale=scale,
-        T=T,
         H=H,
         V=V,
         BT=BT,
         BV=BV,
+        grid=grid,
+        out_shape=out_shapes,
+        kernel=chunk_dplr_bwd_kernel_dAu,
     )
     return dv_new, dA_qk, dA_qb

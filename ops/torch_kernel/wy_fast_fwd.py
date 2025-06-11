@@ -15,16 +15,12 @@ def wu_fwd(
     v: torch.Tensor,
     A_ak: torch.Tensor,
     A_ab_inv: torch.Tensor,
-    cu_seqlens: Optional[torch.LongTensor],
     chunk_size: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     B, T, H, K, V = *ag.shape, v.shape[-1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
     BK = min(triton.next_power_of_2(K), 64)
     BV = min(triton.next_power_of_2(V), 64)
 
@@ -53,16 +49,12 @@ def prepare_wy_repr_fwd(
     v: torch.Tensor,
     A_ak: torch.Tensor,
     A_ab: torch.Tensor,
-    cu_seqlens: Optional[torch.LongTensor],
     chunk_size: int = 64,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     B, T, H, _ = ag.shape
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
     BC = min(BT, 32)
     fwd_fn = (
         prepare_wy_repr_fwd_kernel_chunk64
@@ -78,9 +70,7 @@ def prepare_wy_repr_fwd(
         BT=BT,
         BC=BC,
     )
-    w, u = wu_fwd(
-        ag=ag, v=v, A_ak=A_ak, A_ab_inv=A_ab_inv, cu_seqlens=cu_seqlens, chunk_size=BT
-    )
+    w, u = wu_fwd(ag=ag, v=v, A_ak=A_ak, A_ab_inv=A_ab_inv, chunk_size=BT)
     return w, u, A_ab_inv
 
 

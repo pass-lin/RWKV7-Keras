@@ -158,4 +158,3 @@ def chunk_dplr_fwd_kernel_h(
             b_h.to(p_ht.dtype.element_ty, fp_downcast_rounding="rtne"),
             boundary_check=(0, 1),
         )
-

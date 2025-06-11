@@ -163,15 +163,11 @@ def chunk_dplr_bwd_dAu(
     do: torch.Tensor,
     A_qb: torch.Tensor,
     scale: float,
-    cu_seqlens: Optional[torch.LongTensor] = None,
     chunk_size: int = 64,
 ) -> torch.Tensor:
     B, T, H, V = v.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
     if check_shared_mem("ampere"):  # A100
         BV = min(triton.next_power_of_2(V), 128)
@@ -192,8 +188,6 @@ def chunk_dplr_bwd_dAu(
         dA_qk=dA_qk,
         dA_qb=dA_qb,
         dv_new=dv_new,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
         scale=scale,
         T=T,
         H=H,

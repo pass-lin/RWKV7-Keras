@@ -4,7 +4,7 @@ from typing import Optional
 import torch
 import triton
 from einops import rearrange
-from keras import ops
+
 from ops.torch_kernel.chunk_A_bwd import chunk_dplr_bwd_dqk_intra
 from ops.torch_kernel.chunk_A_fwd import chunk_dplr_fwd_intra
 from ops.torch_kernel.chunk_h_bwd import chunk_dplr_bwd_dhu
@@ -25,6 +25,12 @@ from ops.get_torch_devices_info import (
 )
 
 
+def cast(x, dtype):
+    if x is None or x.dtype == dtype:
+        return x
+    return x.to(dtype)
+
+
 def chunk_dplr_fwd(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -35,12 +41,11 @@ def chunk_dplr_fwd(
     scale: float,
     initial_state: torch.Tensor,
     output_final_state: bool,
-    cu_seqlens: Optional[torch.LongTensor] = None,
-    chunk_size: int = 64,
+    chunk_size: int = 16,
 ):
     T = q.shape[1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
-    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT, cu_seqlens=cu_seqlens)
+    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT)
     A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_dplr_fwd_intra(
         q=q,
         k=k,
@@ -49,7 +54,6 @@ def chunk_dplr_fwd(
         gi=gi,
         ge=ge,
         scale=scale,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
 
@@ -57,9 +61,7 @@ def chunk_dplr_fwd(
 
     # A_ab, A_ak, gi, ge torch.float32
     # A_qk, A_qb, qg, kg, ag, bg, dtype=q.dtype, eg: bf16
-    w, u, _ = prepare_wy_repr_fwd(
-        ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, cu_seqlens=cu_seqlens, chunk_size=BT
-    )
+    w, u, _ = prepare_wy_repr_fwd(ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, chunk_size=BT)
     del A_ab, A_ak
     h, v_new, final_state = chunk_dplr_fwd_h(
         kg=kg,
@@ -70,7 +72,6 @@ def chunk_dplr_fwd(
         gk=gi,
         initial_state=initial_state,
         output_final_state=output_final_state,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
 
@@ -83,7 +84,6 @@ def chunk_dplr_fwd(
         A_qk=A_qk,
         A_qb=A_qb,
         h=h,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
     del v_new, h, A_qk, A_qb
@@ -98,16 +98,15 @@ def chunk_dplr_bwd(
     a: torch.Tensor,
     b: torch.Tensor,
     gk: torch.Tensor,
-    scale: float,
     initial_state: torch.Tensor,
+    scale,
     do,
     dht,
     DTYPE,
-    cu_seqlens=None,
-    BT: int = 64,
+    BT: int = 16,
 ):
     # ******* start recomputing everything, otherwise i believe the gpu memory will be exhausted *******
-    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT, cu_seqlens=cu_seqlens)
+    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT)
 
     A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_dplr_fwd_intra(
         q=q,
@@ -117,11 +116,10 @@ def chunk_dplr_bwd(
         gi=gi,
         ge=ge,
         scale=scale,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
     w, u, A_ab_inv = prepare_wy_repr_fwd(
-        ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, cu_seqlens=cu_seqlens, chunk_size=BT
+        ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, chunk_size=BT
     )
     del A_ab
     h, v_new, _ = chunk_dplr_fwd_h(
@@ -132,9 +130,9 @@ def chunk_dplr_bwd(
         u=u,
         gk=gi,
         initial_state=initial_state,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
+
     del u
     # ******* end of recomputation *******
     # A_ak, A_ab_inv, gi, ge torch.float32
@@ -146,10 +144,9 @@ def chunk_dplr_bwd(
         do=do,
         A_qb=A_qb,
         scale=scale,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
-
+    return v, v_new, do, A_qb, dv_new_intra, dA_qk, dA_qb
     dh, dh0, dv_new = chunk_dplr_bwd_dhu(
         qg=qg,
         bg=bg,
@@ -159,13 +156,10 @@ def chunk_dplr_bwd(
         dht=dht,
         do=do,
         dv=dv_new_intra,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
 
-    dv = chunk_dplr_bwd_dv(
-        A_qk=A_qk, kg=kg, do=do, dh=dh, cu_seqlens=cu_seqlens, chunk_size=BT
-    )
+    dv = chunk_dplr_bwd_dv(A_qk=A_qk, kg=kg, do=do, dh=dh, chunk_size=BT)
     del A_qk
 
     dqg, dkg, dw, dbg, dgk_last = chunk_dplr_bwd_o(
@@ -179,7 +173,6 @@ def chunk_dplr_bwd(
         dv=dv_new,
         w=w,
         gk=gi,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
         scale=scale,
     )
@@ -193,7 +186,6 @@ def chunk_dplr_bwd(
         dw=dw,
         du=dv_new,
         dv0=dv,
-        cu_seqlens=cu_seqlens,
         chunk_size=BT,
     )
     del A_ak
@@ -216,18 +208,17 @@ def chunk_dplr_bwd(
         dbg=dbg,
         chunk_size=BT,
         scale=scale,
-        cu_seqlens=cu_seqlens,
     )
 
     return (
-        ops.cast(dq.to(q), DTYPE),
-        ops.cast(dk.to(k), DTYPE),
-        ops.cast(dv.to(v), DTYPE),
-        ops.cast(da.to(a), DTYPE),
-        ops.cast(db.to(b), DTYPE),
-        ops.cast(dgk.to(gk), DTYPE),
+        cast(dq.to(q), DTYPE),
+        cast(dk.to(k), DTYPE),
+        cast(dv.to(v), DTYPE),
+        cast(da.to(a), DTYPE),
+        cast(db.to(b), DTYPE),
+        cast(dgk.to(gk), DTYPE),
         None,
-        ops.cast(dh0, DTYPE),
+        cast(dh0, DTYPE),
         None,
         None,
     )
@@ -261,7 +252,6 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             scale=scale,
             initial_state=initial_state,
             output_final_state=output_final_state,
-            cu_seqlens=cu_seqlens,
             chunk_size=chunk_size,
         )
         ctx.save_for_backward(q, k, v, a, b, gk, initial_state)
@@ -280,9 +270,9 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
         cu_seqlens = ctx.cu_seqlens
         scale = ctx.scale
         if do != None:
-            do = ops.cast(do, q.dtype)
+            do = cast(do, q.dtype)
         if dht != None:
-            dht = ops.cast(dht, q.dtype)
+            dht = cast(dht, q.dtype)
 
         return chunk_dplr_bwd(
             q,
@@ -435,15 +425,14 @@ def chunk_rwkv7(
         scale=scale,
         initial_state=initial_state,
         output_final_state=output_final_state,
-        cu_seqlens=cu_seqlens,
         head_first=head_first,
     )
 
 
 def transpose_head(x, head_first):
     if head_first:
-        x = ops.transpose(x, (0, 2, 1, 3))
-    return ops.cast(x, "bfloat16")
+        x = torch.permute(x, dims=(0, 2, 1, 3))
+    return cast(x, torch.bfloat16)
 
 
 def generalized_delta_rule(
@@ -477,6 +466,6 @@ def generalized_delta_rule(
     )
     out = transpose_head(out, dtype)
     if output_final_state:
-        return out, ops.cast(state, dtype)
+        return out, cast(state, dtype)
     else:
         return out

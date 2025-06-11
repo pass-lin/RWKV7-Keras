@@ -31,7 +31,7 @@ def chunk_dplr_fwd_intra(
     )
     NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
 
-    Aqk = q.new_empty(B, T, H, BT, dtype=q.dtype)
+    Aqk = q.new_empty(B, T, H, BT, dtype=torch.float)
     Aqb = q.new_empty(B, T, H, BT, dtype=q.dtype)
     # involving matrix inverse and it'd be better to use float here.
     Aab = q.new_empty(B, T, H, BT, dtype=torch.float)

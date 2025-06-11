@@ -11,7 +11,6 @@ from ops.triton_kernel.utils import is_intel_alchemist, use_cuda_graph
 triton_config = {"grf_mode": "large"} if is_intel_alchemist else {}
 
 
-@triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
 @triton.autotune(
     configs=[
         triton.Config(triton_config, num_warps=num_warps, num_stages=num_stages)
@@ -30,24 +29,21 @@ def prepare_wy_repr_bwd_kernel(
     dw,
     du,
     dv0,
+    T,
     dAak,
     dAab,
     dv,
     dag,
-    cu_seqlens,
-    chunk_indices,
-    T,
     H: tl.constexpr,
     K: tl.constexpr,
     V: tl.constexpr,
     BT: tl.constexpr,
     BK: tl.constexpr,
     BV: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
 ):
     i_t, i_bh = tl.program_id(0), tl.program_id(1)
     i_b, i_h = i_bh // H, i_bh % H
-    if IS_VARLEN:
+    if False:
         i_n, i_t = (
             tl.load(chunk_indices + i_t * 2).to(tl.int32),
             tl.load(chunk_indices + i_t * 2 + 1).to(tl.int32),

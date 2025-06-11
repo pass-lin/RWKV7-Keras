@@ -6,16 +6,10 @@ from ops.get_torch_devices_info import prepare_chunk_indices
 def chunk_rwkv6_fwd_cumsum(
     g: torch.Tensor,
     chunk_size: int,
-    cu_seqlens=None,
 ) -> torch.Tensor:
     B, T, H, S = g.shape
     BT = chunk_size
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, chunk_size)
-        if cu_seqlens is not None
-        else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
     gi, ge = (
         torch.empty_like(g, dtype=torch.float),
