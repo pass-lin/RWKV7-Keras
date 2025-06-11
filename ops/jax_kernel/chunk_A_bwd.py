@@ -1,11 +1,15 @@
-import jax
+# -*- coding: utf-8 -*-
+# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+
+from typing import Optional
 import jax_triton as jt
+import jax
 import triton
-from ops.get_jax_devices_info import device_capacity
 from ops.triton_kernel.chunk_A_bwd import *
+from ops.triton_kernel.utils import is_gather_supported
+from ops.get_torch_devices_info import check_shared_mem, prepare_chunk_indices
 
 
-# @partial(jax.jit, static_argnames=['head_first',"chunk_size","scale"])
 def chunk_dplr_bwd_dqk_intra(
     q: jax.Array,
     k: jax.Array,
@@ -22,29 +26,23 @@ def chunk_dplr_bwd_dqk_intra(
     dag: jax.Array,
     dbg: jax.Array,
     dgk_last: jax.Array,
-    offsets=None,
-    indices=None,
-    head_first: bool = True,
     scale: float = 1.0,
+    cu_seqlens=None,
     chunk_size: int = 64,
 ):
-    if head_first:
-        B, H, T, K = q.shape
-    else:
-        B, T, H, K = q.shape
+    B, T, H, K = q.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    BC = min(16, BT)
     BK = (
         min(64, triton.next_power_of_2(K))
-        if device_capacity
+        if check_shared_mem()
         else min(32, triton.next_power_of_2(K))
     )
-    NT = triton.cdiv(T, BT) if offsets is None else len(indices)
-    NC = triton.cdiv(BT, BC)
-    NK = triton.cdiv(K, BK)
 
-    grid = (int(NK), int(NT * NC), int(B * H))
-    # 定义输出形状结构
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    )
+    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NK = triton.cdiv(K, BK)
     out_shapes = [
         jax.ShapeDtypeStruct(q.shape, q.dtype),
         jax.ShapeDtypeStruct(k.shape, k.dtype),
@@ -54,7 +52,7 @@ def chunk_dplr_bwd_dqk_intra(
         jax.ShapeDtypeStruct(gi.shape, "float32"),
     ]
 
-    # 调用第一个内核
+    grid = (NK, NT, B * H)
     dq, dk, da, db, dgk, dgk_offset = jt.triton_call(
         q,
         k,
@@ -70,45 +68,40 @@ def chunk_dplr_bwd_dqk_intra(
         dkg,
         dag,
         dbg,
-        offsets=offsets,
-        indices=indices,
+        cu_seqlens=cu_seqlens,
+        chunk_indices=chunk_indices,
         scale=scale,
         T=T,
         H=H,
         K=K,
         BT=BT,
-        BC=BC,
+        BC=BT,
         BK=BK,
-        NC=NC,
-        USE_OFFSETS=offsets is not None,
-        HEAD_FIRST=head_first,
+        GATHER_SUPPORTED=is_gather_supported,
+        IS_VARLEN=cu_seqlens is not None,
         kernel=chunk_dplr_bwd_kernel_intra.fn,
         out_shape=out_shapes,
         grid=grid,
-        num_warps=4,
-        num_stages=3,
     )
 
-    grid2 = (int(NT), int(triton.cdiv(K, BK)), int(B * H))
+    dgk_output = jax.ShapeDtypeStruct(dgk.shape, dgk.dtype)
+
+    def grid(meta):
+        return (NT, triton.cdiv(K, meta["BK"]), B * H)
 
     dgk_output = jt.triton_call(
         dgk,
         dgk_offset,
         dgk_last,
-        offsets=offsets,  # 明确命名参数
-        indices=indices,
-        T=T,  # 显式传递标量参数
+        cu_seqlens=cu_seqlens,
+        chunk_indices=chunk_indices,
+        T=T,
         H=H,
         K=K,
         BT=BT,
-        BK=BK,
-        USE_OFFSETS=offsets is not None,
-        HEAD_FIRST=head_first,
-        kernel=chunk_dplr_bwd_dgk_kernel.fn,
-        out_shape=jax.ShapeDtypeStruct(dgk.shape, dgk.dtype),  # 单输出结构
-        grid=grid2,
-        num_warps=4,
-        num_stages=3,
+        IS_VARLEN=cu_seqlens is not None,
+        kernel=chunk_dplr_bwd_kernel_intra.fn,
+        out_shape=out_shapes,
+        grid=grid,
     )
-
     return dq, dk, da, db, dgk_output

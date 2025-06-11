@@ -1,10 +1,13 @@
+# -*- coding: utf-8 -*-
+# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+
 from typing import Optional
 
 import torch
 import triton
-
-from ops.get_torch_devices_info import device_capacity
 from ops.triton_kernel.chunk_A_bwd import *
+from ops.triton_kernel.utils import is_gather_supported
+from ops.get_torch_devices_info import check_shared_mem, prepare_chunk_indices
 
 
 def chunk_dplr_bwd_dqk_intra(
@@ -23,25 +26,22 @@ def chunk_dplr_bwd_dqk_intra(
     dag: torch.Tensor,
     dbg: torch.Tensor,
     dgk_last: torch.Tensor,
-    offsets: Optional[torch.LongTensor] = None,
-    indices: Optional[torch.LongTensor] = None,
-    head_first: bool = True,
     scale: float = 1.0,
+    cu_seqlens: Optional[torch.LongTensor] = None,
     chunk_size: int = 64,
 ):
-    if head_first:
-        B, H, T, K = q.shape
-    else:
-        B, T, H, K = q.shape
+    B, T, H, K = q.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    BC = min(16, BT)
     BK = (
         min(64, triton.next_power_of_2(K))
-        if device_capacity
+        if check_shared_mem()
         else min(32, triton.next_power_of_2(K))
     )
-    NT = triton.cdiv(T, BT) if offsets is None else len(indices)
-    NC = triton.cdiv(BT, BC)
+
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    )
+    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
     NK = triton.cdiv(K, BK)
 
     dq = torch.empty_like(q)
@@ -51,7 +51,7 @@ def chunk_dplr_bwd_dqk_intra(
     dgk = torch.empty_like(gi, dtype=torch.float)
     dgk_offset = torch.empty_like(gi, dtype=torch.float)
 
-    grid = (NK, NT * NC, B * H)
+    grid = (NK, NT, B * H)
     chunk_dplr_bwd_kernel_intra[grid](
         q=q,
         k=k,
@@ -73,35 +73,33 @@ def chunk_dplr_bwd_dqk_intra(
         dbg=dbg,
         da=da,
         db=db,
-        offsets=offsets,
-        indices=indices,
+        cu_seqlens=cu_seqlens,
+        chunk_indices=chunk_indices,
         scale=scale,
         T=T,
         H=H,
         K=K,
         BT=BT,
-        BC=BC,
+        BC=BT,
         BK=BK,
-        NC=NC,
-        HEAD_FIRST=head_first,
+        GATHER_SUPPORTED=is_gather_supported,
     )
-
-    def grid2(meta):
-        return (NT, triton.cdiv(K, meta["BK"]), B * H)
 
     dgk_output = torch.empty_like(dgk)
 
-    chunk_dplr_bwd_dgk_kernel[grid2](
+    def grid(meta):
+        return (NT, triton.cdiv(K, meta["BK"]), B * H)
+
+    chunk_dplr_bwd_dgk_kernel[grid](
         dgk=dgk,
         dgk_offset=dgk_offset,
         dgk_last=dgk_last,
         dgk_output=dgk_output,
-        offsets=offsets,
-        indices=indices,
+        cu_seqlens=cu_seqlens,
+        chunk_indices=chunk_indices,
         T=T,
         H=H,
         K=K,
         BT=BT,
-        HEAD_FIRST=head_first,
     )
     return dq, dk, da, db, dgk_output

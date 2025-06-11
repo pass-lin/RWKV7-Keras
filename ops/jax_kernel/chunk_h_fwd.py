@@ -1,18 +1,14 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional
-from typing import Tuple
+from typing import Optional, Tuple
 
-import jax
-import jax.numpy as jnp
 import jax_triton as jt
-
+import jax
 import triton
 
-from ops.get_jax_devices_info import is_triton_shared_mem_enough
-from ops.jax_kernel.utils import prepare_chunk_offsets
-from ops.triton_kernel.chunk_h_fwd import chunk_dplr_fwd_kernel_h
+from ops.get_jax_devices_info import prepare_chunk_indices, check_shared_mem
+from ops.triton_kernel.chunk_h_fwd import *
 
 
 def chunk_dplr_fwd_h(
@@ -24,30 +20,33 @@ def chunk_dplr_fwd_h(
     gk: jax.Array,
     initial_state: Optional[jax.Array] = None,
     output_final_state: bool = False,
-    offsets=None,
-    head_first: bool = True,
+    cu_seqlens=None,
     chunk_size: int = 64,
 ) -> Tuple[jax.Array, jax.Array]:
-    if head_first:
-        B, H, T, K, V = *kg.shape, u.shape[-1]
-    else:
-        B, T, H, K, V = *kg.shape, u.shape[-1]
+    B, T, H, K, V = *kg.shape, u.shape[-1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
+
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    )
     # N: the actual number of sequences in the batch with either equal or variable lengths
-    if offsets is None:
+    if cu_seqlens is None:
         N, NT, chunk_offsets = B, triton.cdiv(T, BT), None
     else:
-        N = len(offsets) - 1
-        chunk_offsets = prepare_chunk_offsets(offsets, BT)
-        NT = chunk_offsets[-1]
+        raise (1)
+        N, NT, chunk_offsets = (
+            len(cu_seqlens) - 1,
+            len(chunk_indices),
+            prepare_chunk_offsets(cu_seqlens, BT),
+        )
     BK = triton.next_power_of_2(K)
     assert BK <= 256, "current kernel does not support head dimension larger than 256."
     # H100 can have larger block size
 
-    if is_triton_shared_mem_enough(233472, 0):
+    if check_shared_mem("hopper", kg.device):
         BV = 64
         BC = 64 if K <= 128 else 32
-    elif is_triton_shared_mem_enough(131072, 0):  # A100
+    elif check_shared_mem("ampere", kg.device):  # A100
         BV = 32
         BC = 32
     else:
@@ -61,18 +60,14 @@ def chunk_dplr_fwd_h(
         "NK > 1 is not supported because it involves time-consuming synchronization"
     )
 
-    if head_first:
-        h_shape = (B, H, NT, K, V)
-    else:
-        h_shape = (B, NT, H, K, V)
-    grid = (NK, NV, N * H)
     out_shapes = [
-        jax.ShapeDtypeStruct(h_shape, kg.dtype),
+        jax.ShapeDtypeStruct((B, NT, H, K, V), kg.dtype),
         jax.ShapeDtypeStruct([N, H, K, V], "float32"),
         jax.ShapeDtypeStruct(u.shape, u.dtype),
     ]
-    if initial_state == None:
-        initial_state = jnp.zeros([N, H, K, V], dtype="float32")
+    grid = (NK, NV, N * H)
+    if initial_state is None:
+        initial_state = jax.numpy.zeros([N, H, K, V], "float32")
     h, final_state, v_new = jt.triton_call(
         kg,
         v,
@@ -81,9 +76,7 @@ def chunk_dplr_fwd_h(
         u,
         gk,
         initial_state,
-        offsets=offsets,
-        chunk_offsets=None,
-        T=T,
+        T,
         H=H,
         K=K,
         V=V,
@@ -91,13 +84,10 @@ def chunk_dplr_fwd_h(
         BC=BC,
         BK=BK,
         BV=BV,
-        NT=NT,
-        USE_OFFSETS=offsets is not None,
-        HEAD_FIRST=head_first,
-        USE_INITIAL_STATE=initial_state is not None,
-        STORE_FINAL_STATE=True,
-        grid=grid,
-        out_shape=out_shapes,
         kernel=chunk_dplr_fwd_kernel_h.fn,
+        out_shape=out_shapes,
+        grid=grid,
+        STORE_FINAL_STATE=True,
+        USE_INITIAL_STATE=True,
     )
-    return h, v_new, final_state if output_final_state else None
+    return h, v_new, final_state

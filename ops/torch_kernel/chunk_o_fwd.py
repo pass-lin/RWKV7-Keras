@@ -6,7 +6,8 @@ from typing import Optional
 import torch
 import triton
 
-from ops.triton_kernel.chunk_o_fwd import chunk_dplr_fwd_kernel_o
+from ops.get_torch_devices_info import prepare_chunk_indices
+from ops.triton_kernel.chunk_o_fwd import *
 
 
 def chunk_dplr_fwd_o(
@@ -16,17 +17,16 @@ def chunk_dplr_fwd_o(
     A_qk: torch.Tensor,
     A_qb: torch.Tensor,
     h: torch.Tensor,
-    offsets: Optional[torch.LongTensor] = None,
-    indices: Optional[torch.LongTensor] = None,
-    head_first: bool = True,
+    cu_seqlens: Optional[torch.LongTensor] = None,
     chunk_size: int = 64,
 ) -> torch.Tensor:
-    if head_first:
-        B, H, T, K, V = *qg.shape, v.shape[-1]
-    else:
-        B, T, H, K, V = *qg.shape, v.shape[-1]
+    B, T, H, K, V = *qg.shape, v.shape[-1]
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    NT = triton.cdiv(T, BT) if offsets is None else len(indices)
+
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    )
+    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
 
     o = torch.empty_like(v)
 
@@ -41,13 +41,10 @@ def chunk_dplr_fwd_o(
         A_qb=A_qb,
         h=h,
         o=o,
-        offsets=offsets,
-        indices=indices,
         T=T,
         H=H,
         K=K,
         V=V,
         BT=BT,
-        HEAD_FIRST=head_first,
     )
     return o

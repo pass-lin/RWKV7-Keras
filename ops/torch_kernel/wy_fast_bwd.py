@@ -1,11 +1,14 @@
-from typing import Optional
-from typing import Tuple
+# -*- coding: utf-8 -*-
+# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+
+from typing import Optional, Tuple
 
 import torch
 import triton
 
-from ops.get_torch_devices_info import device_capacity
-from ops.triton_kernel.wy_fast_bwd import bwd_prepare_wy_repr_kernel
+
+from ops.get_torch_devices_info import check_shared_mem, prepare_chunk_indices
+from ops.triton_kernel.wy_fast_bwd import *
 
 
 def chunk_dplr_bwd_wy(
@@ -16,35 +19,23 @@ def chunk_dplr_bwd_wy(
     dw: torch.Tensor,
     du: torch.Tensor,
     dv0: torch.Tensor,
-    offsets: Optional[torch.LongTensor],
-    indices: Optional[torch.LongTensor],
-    head_first: bool,
+    cu_seqlens: Optional[torch.LongTensor],
     chunk_size: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     A_ab_inv, A_ak, v, ag, dw, du = map(
         lambda x: x.contiguous(), [A_ab_inv, A_ak, v, ag, dw, du]
     )
-    if head_first:
-        B, H, T, K, V = *dw.shape, du.shape[-1]
-    else:
-        B, T, H, K, V = *dw.shape, du.shape[-1]
+    B, T, H, K, V = *dw.shape, du.shape[-1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
-    if offsets is None:
-        NT = triton.cdiv(T, BT)
-    else:
-        if indices is None:
-            indices = torch.cat(
-                [
-                    torch.arange(n)
-                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
-                ]
-            )
-            indices = torch.stack([indices.eq(0).cumsum(0) - 1, indices], 1).to(offsets)
-        NT = len(indices)
+
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    )
+    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
     BK = min(triton.next_power_of_2(K), 64)
     BV = (
         min(triton.next_power_of_2(V), 64)
-        if device_capacity
+        if check_shared_mem()
         else min(triton.next_power_of_2(V), 32)
     )
 
@@ -53,7 +44,7 @@ def chunk_dplr_bwd_wy(
     dv = torch.empty_like(v)
     dag = torch.empty_like(ag)
 
-    bwd_prepare_wy_repr_kernel[(NT, B * H)](
+    prepare_wy_repr_bwd_kernel[(NT, B * H)](
         A_ab_inv=A_ab_inv,
         A_ak=A_ak,
         ag=ag,
@@ -65,8 +56,8 @@ def chunk_dplr_bwd_wy(
         dag=dag,
         dAak=dA_ak,
         dAab=dA_ab,
-        offsets=offsets,
-        indices=indices,
+        cu_seqlens=cu_seqlens,
+        chunk_indices=chunk_indices,
         T=T,
         H=H,
         K=K,
@@ -74,6 +65,5 @@ def chunk_dplr_bwd_wy(
         BT=BT,
         BK=BK,
         BV=BV,
-        HEAD_FIRST=head_first,
     )
     return dA_ab, dA_ak, dv, dag

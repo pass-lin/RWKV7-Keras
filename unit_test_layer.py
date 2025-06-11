@@ -2,6 +2,8 @@ import os
 
 os.environ["KERAS_BACKEND"] = "torch"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["KERNEL_TYPE"] = "triton"
+
 from ops import USE_KERNEL
 
 print("use kernel:" + str(USE_KERNEL))

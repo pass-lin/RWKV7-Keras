@@ -5,15 +5,14 @@
 import triton
 import triton.language as tl
 
-from ops.get_torch_devices_info import use_cuda_graph
-from ops.triton_kernel.math import exp
+from ops.triton_kernel.utils import exp, use_cuda_graph
 
 
 @triton.heuristics(
     {
         "USE_FINAL_STATE_GRADIENT": lambda args: args["dht"] is not None,
         "USE_INITIAL_STATE": lambda args: args["dh0"] is not None,
-        "USE_OFFSETS": lambda args: args["offsets"] is not None,
+        "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
     }
 )
 @triton.autotune(
@@ -37,7 +36,7 @@ def chunk_dplr_bwd_kernel_dhu(
     dh,
     dh0,
     dv2,
-    offsets,
+    cu_seqlens,
     chunk_offsets,
     T,
     H: tl.constexpr,
@@ -49,15 +48,14 @@ def chunk_dplr_bwd_kernel_dhu(
     BV: tl.constexpr,
     USE_FINAL_STATE_GRADIENT: tl.constexpr,
     USE_INITIAL_STATE: tl.constexpr,
-    USE_OFFSETS: tl.constexpr,
-    HEAD_FIRST: tl.constexpr,
+    IS_VARLEN: tl.constexpr,
 ):
     i_k, i_v, i_nh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     i_n, i_h = i_nh // H, i_nh % H
-    if USE_OFFSETS:
+    if IS_VARLEN:
         bos, eos = (
-            tl.load(offsets + i_n).to(tl.int32),
-            tl.load(offsets + i_n + 1).to(tl.int32),
+            tl.load(cu_seqlens + i_n).to(tl.int32),
+            tl.load(cu_seqlens + i_n + 1).to(tl.int32),
         )
         T = eos - bos
         NT = tl.cdiv(T, BT)
@@ -71,136 +69,71 @@ def chunk_dplr_bwd_kernel_dhu(
     b_dh = tl.zeros([BK, BV], dtype=tl.float32)
     if USE_FINAL_STATE_GRADIENT:
         p_dht = tl.make_block_ptr(
-            dht + i_nh * K * V,
+            dht + i_nh * K * V, (K, V), (V, 1), (i_k * BK, i_v * BV), (BK, BV), (1, 0)
+        )
+        b_dh += tl.load(p_dht, boundary_check=(0, 1))
+
+    mask_k = tl.arange(0, BK) < K
+    for i_t in range(NT - 1, -1, -1):
+        p_dh = tl.make_block_ptr(
+            dh + ((boh + i_t) * H + i_h) * K * V,
             (K, V),
             (V, 1),
             (i_k * BK, i_v * BV),
             (BK, BV),
             (1, 0),
         )
-        b_dh += tl.load(p_dht, boundary_check=(0, 1))
-
-    mask_k = tl.arange(0, BK) < K
-    for i_t in range(NT - 1, -1, -1):
-        if HEAD_FIRST:
-            p_dh = tl.make_block_ptr(
-                dh + (i_nh * NT + i_t) * K * V,
-                (K, V),
-                (V, 1),
-                (i_k * BK, i_v * BV),
-                (BK, BV),
-                (1, 0),
-            )
-        else:
-            p_dh = tl.make_block_ptr(
-                dh + ((boh + i_t) * H + i_h) * K * V,
-                (K, V),
-                (V, 1),
-                (i_k * BK, i_v * BV),
-                (BK, BV),
-                (1, 0),
-            )
         tl.store(p_dh, b_dh.to(p_dh.dtype.element_ty), boundary_check=(0, 1))
         b_dh_tmp = tl.zeros([BK, BV], dtype=tl.float32)
         for i_c in range(tl.cdiv(BT, BC) - 1, -1, -1):
-            if HEAD_FIRST:
-                p_qg = tl.make_block_ptr(
-                    qg + i_nh * T * K,
-                    (K, T),
-                    (1, K),
-                    (i_k * BK, i_t * BT + i_c * BC),
-                    (BK, BC),
-                    (0, 1),
-                )
-                p_bg = tl.make_block_ptr(
-                    bg + i_nh * T * K,
-                    (T, K),
-                    (K, 1),
-                    (i_t * BT + i_c * BC, i_k * BK),
-                    (BC, BK),
-                    (1, 0),
-                )
-                p_w = tl.make_block_ptr(
-                    w + i_nh * T * K,
-                    (K, T),
-                    (1, K),
-                    (i_k * BK, i_t * BT + i_c * BC),
-                    (BK, BC),
-                    (0, 1),
-                )
-                p_dv = tl.make_block_ptr(
-                    dv + i_nh * T * V,
-                    (T, V),
-                    (V, 1),
-                    (i_t * BT + i_c * BC, i_v * BV),
-                    (BC, BV),
-                    (1, 0),
-                )
-                p_do = tl.make_block_ptr(
-                    do + i_nh * T * V,
-                    (T, V),
-                    (V, 1),
-                    (i_t * BT + i_c * BC, i_v * BV),
-                    (BC, BV),
-                    (1, 0),
-                )
-                p_dv2 = tl.make_block_ptr(
-                    dv2 + i_nh * T * V,
-                    (T, V),
-                    (V, 1),
-                    (i_t * BT + i_c * BC, i_v * BV),
-                    (BC, BV),
-                    (1, 0),
-                )
-            else:
-                p_qg = tl.make_block_ptr(
-                    qg + (bos * H + i_h) * K,
-                    (K, T),
-                    (1, H * K),
-                    (i_k * BK, i_t * BT + i_c * BC),
-                    (BK, BC),
-                    (0, 1),
-                )
-                p_bg = tl.make_block_ptr(
-                    bg + (bos * H + i_h) * K,
-                    (T, K),
-                    (H * K, 1),
-                    (i_t * BT + i_c * BC, i_k * BK),
-                    (BC, BK),
-                    (1, 0),
-                )
-                p_w = tl.make_block_ptr(
-                    w + (bos * H + i_h) * K,
-                    (K, T),
-                    (1, H * K),
-                    (i_k * BK, i_t * BT + i_c * BC),
-                    (BK, BC),
-                    (0, 1),
-                )
-                p_dv = tl.make_block_ptr(
-                    dv + (bos * H + i_h) * V,
-                    (T, V),
-                    (H * V, 1),
-                    (i_t * BT + i_c * BC, i_v * BV),
-                    (BC, BV),
-                    (1, 0),
-                )
-                p_do = tl.make_block_ptr(
-                    do + (bos * H + i_h) * V,
-                    (T, V),
-                    (H * V, 1),
-                    (i_t * BT + i_c * BC, i_v * BV),
-                    (BC, BV),
-                    (1, 0),
-                )
-                p_dv2 = tl.make_block_ptr(
-                    dv2 + (bos * H + i_h) * V,
-                    (T, V),
-                    (H * V, 1),
-                    (i_t * BT + i_c * BC, i_v * BV),
-                    (BC, BV),
-                    (1, 0),
-                )
+            p_qg = tl.make_block_ptr(
+                qg + (bos * H + i_h) * K,
+                (K, T),
+                (1, H * K),
+                (i_k * BK, i_t * BT + i_c * BC),
+                (BK, BC),
+                (0, 1),
+            )
+            p_bg = tl.make_block_ptr(
+                bg + (bos * H + i_h) * K,
+                (T, K),
+                (H * K, 1),
+                (i_t * BT + i_c * BC, i_k * BK),
+                (BC, BK),
+                (1, 0),
+            )
+            p_w = tl.make_block_ptr(
+                w + (bos * H + i_h) * K,
+                (K, T),
+                (1, H * K),
+                (i_k * BK, i_t * BT + i_c * BC),
+                (BK, BC),
+                (0, 1),
+            )
+            p_dv = tl.make_block_ptr(
+                dv + (bos * H + i_h) * V,
+                (T, V),
+                (H * V, 1),
+                (i_t * BT + i_c * BC, i_v * BV),
+                (BC, BV),
+                (1, 0),
+            )
+            p_do = tl.make_block_ptr(
+                do + (bos * H + i_h) * V,
+                (T, V),
+                (H * V, 1),
+                (i_t * BT + i_c * BC, i_v * BV),
+                (BC, BV),
+                (1, 0),
+            )
+            p_dv2 = tl.make_block_ptr(
+                dv2 + (bos * H + i_h) * V,
+                (T, V),
+                (H * V, 1),
+                (i_t * BT + i_c * BC, i_v * BV),
+                (BC, BV),
+                (1, 0),
+            )
             # [BK, BT]
             b_qg = tl.load(p_qg, boundary_check=(0, 1))
             # [BT, BK]
@@ -215,25 +148,14 @@ def chunk_dplr_bwd_kernel_dhu(
             b_dh_tmp += tl.dot(b_qg, b_do.to(b_qg.dtype))
             b_dh_tmp += tl.dot(b_w, b_dv2.to(b_qg.dtype))
         last_idx = min((i_t + 1) * BT, T) - 1
-        if HEAD_FIRST:
-            bg_last = tl.load(
-                gk + (i_nh * T + last_idx) * K + tl.arange(0, BK), mask=mask_k
-            )
-        else:
-            bg_last = tl.load(
-                gk + ((bos + last_idx) * H + i_h) * K + tl.arange(0, BK),
-                mask=mask_k,
-            )
+        bg_last = tl.load(
+            gk + ((bos + last_idx) * H + i_h) * K + tl.arange(0, BK), mask=mask_k
+        )
         b_dh *= exp(bg_last)[:, None]
         b_dh += b_dh_tmp
 
     if USE_INITIAL_STATE:
         p_dh0 = tl.make_block_ptr(
-            dh0 + i_nh * K * V,
-            (K, V),
-            (V, 1),
-            (i_k * BK, i_v * BV),
-            (BK, BV),
-            (1, 0),
+            dh0 + i_nh * K * V, (K, V), (V, 1), (i_k * BK, i_v * BV), (BK, BV), (1, 0)
         )
         tl.store(p_dh0, b_dh.to(p_dh0.dtype.element_ty), boundary_check=(0, 1))

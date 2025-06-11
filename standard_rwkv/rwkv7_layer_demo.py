@@ -68,13 +68,13 @@ def RWKV7_OP(r, w, k, v, a, b):
     H = C // HEAD_SIZE
     N = HEAD_SIZE
     r = r.view(B, T, H, N).float()
-    
+
     k = k.view(B, T, H, N).float()
-    
+
     v = v.view(B, T, H, N).float()
     a = a.view(B, T, H, N).float()
     b = b.view(B, T, H, N).float()
-    
+
     w = torch.exp(-torch.exp(w.view(B, T, H, N).float()))
     out = torch.zeros((B, T, H, N), device=r.device, dtype=torch.float)
     state = torch.zeros((B, H, N, N), device=r.device, dtype=torch.float)

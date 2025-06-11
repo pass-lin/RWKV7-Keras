@@ -19,28 +19,25 @@ def generalized_delta_rule(
     initial_state=None,
     output_final_state: bool = True,
     head_first: bool = False,
-    use_chunk=None,
 ):
-    DTYPE = r.dtype
     B, T, H, N = ops.shape(r)
-    C = H * N
-    r = ops.cast(transpose_head(r, head_first), "float32")
-    
-    k = ops.cast(transpose_head(k, head_first), "float32")
-    
-    v = ops.cast(transpose_head(v, head_first), "float32")
-    a = ops.cast(transpose_head(a, head_first), "float32")
-    b = ops.cast(transpose_head(b, head_first), "float32")
-    w = ops.cast(transpose_head(w, head_first), "float32")
+    r = transpose_head(r, head_first)
+
+    k = transpose_head(k, head_first)
+
+    v = transpose_head(v, head_first)
+    a = transpose_head(a, head_first)
+    b = transpose_head(b, head_first)
+    w = transpose_head(w, head_first)
     w = ops.exp(-ops.exp(w))
-    
+
     if initial_state is not None:
-        state = ops.cast(initial_state, "float32")
+        state = initial_state
         if ops.shape(state)[0] == 1:
             state = ops.broadcast_to(state, (B, H, N, N))
     else:
         state = ops.zeros((B, H, N, N), dtype="float32")
-    import torch
+
     def step(state, xs):
         kk, rr, vv, aa, bb, w = xs
         kk = ops.expand_dims(kk, -2)
@@ -69,8 +66,8 @@ def generalized_delta_rule(
         ],
         length=T,
     )
-    
-    out = ops.cast(ops.transpose(out, [1, 0, 2, 3]), DTYPE)
+
+    out = ops.transpose(out, [1, 0, 2, 3])
     if output_final_state:
         return out, state
     return out

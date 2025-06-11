@@ -6,10 +6,13 @@ from typing import Optional
 import torch
 import triton
 
+from ops.get_torch_devices_info import prepare_chunk_indices
+from ops.triton_kernel.utils import is_gather_supported
+
 from ops.triton_kernel.chunk_A_fwd import *
 
 
-def chunk_fwd_intra_dplr_fn(
+def chunk_dplr_fwd_intra(
     q: torch.Tensor,
     k: torch.Tensor,
     a: torch.Tensor,
@@ -18,51 +21,25 @@ def chunk_fwd_intra_dplr_fn(
     ge: torch.Tensor,
     scale: float,
     chunk_size: int,
-    offsets: Optional[torch.LongTensor] = None,
-    indices: Optional[torch.LongTensor] = None,
-    head_first: bool = True,
+    cu_seqlens: Optional[torch.LongTensor] = None,
 ):
-    if head_first:
-        B, H, T, K = k.shape
-    else:
-        B, T, H, K = k.shape
+    B, T, H, K = k.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    NT = triton.cdiv(T, BT) if offsets is None else len(indices)
-    BC = min(16, BT)
-    NC = triton.cdiv(BT, BC)
 
-    Aqk = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float)
-    Aqb = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=q.dtype)
-    # involving matrix inverse and it'd be better to use float here.
-    Aab = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float)
-    Aak = q.new_empty(B, *((H, T) if head_first else (T, H)), BT, dtype=torch.float)
-    grid = (NT, NC * NC, B * H)
-
-    chunk_dplr_fwd_A_kernel_intra_sub_inter[grid](
-        q=q,
-        k=k,
-        a=a,
-        b=b,
-        gi=gi,
-        ge=ge,
-        Aqk=Aqk,
-        Aqb=Aqb,
-        Aab=Aab,
-        Aak=Aak,
-        offsets=offsets,
-        indices=indices,
-        scale=scale,
-        T=T,
-        H=H,
-        K=K,
-        BT=BT,
-        BC=BC,
-        NC=NC,
-        HEAD_FIRST=head_first,
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
     )
-    grid = (NT, NC, B * H)
+    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+
+    Aqk = q.new_empty(B, T, H, BT, dtype=q.dtype)
+    Aqb = q.new_empty(B, T, H, BT, dtype=q.dtype)
+    # involving matrix inverse and it'd be better to use float here.
+    Aab = q.new_empty(B, T, H, BT, dtype=torch.float)
+    Aak = q.new_empty(B, T, H, BT, dtype=torch.float)
+
+    grid = (NT, B, H)
     BK = triton.next_power_of_2(K)
-    qg = torch.empty_like(q, dtype=q.dtype)
+    qg = torch.empty_like(q)
     kg = torch.empty_like(k, dtype=q.dtype)
     ag = torch.empty_like(a, dtype=q.dtype)
     bg = torch.empty_like(b, dtype=q.dtype)
@@ -81,16 +58,13 @@ def chunk_fwd_intra_dplr_fn(
         kg=kg,
         ag=ag,
         bg=bg,
-        offsets=offsets,
-        indices=indices,
         scale=scale,
         T=T,
         H=H,
         K=K,
         BT=BT,
-        BC=BC,
+        BC=BT,
         BK=BK,
-        HEAD_FIRST=head_first,
-        NC=NC,
+        GATHER_SUPPORTED=is_gather_supported,
     )
     return Aab, Aqk, Aak, Aqb, qg, kg, ag, bg

@@ -12,7 +12,10 @@ def transpose_head(x, head_first):
         return ops.transpose(x, (0, 2, 1, 3))
     else:
         return x
+
+
 def get_generalized_delta_rule(HEAD_SIZE):
+    global USE_KERNEL
     if keras.config.backend() == "torch":
         import torch
 
@@ -119,7 +122,6 @@ def get_generalized_delta_rule(HEAD_SIZE):
 
             USE_KERNEL = False
     elif keras.config.backend() == "jax":
-        from ops.get_jax_devices_info import is_nvidia
         from jax.lib import xla_bridge
         import jax
         import os
@@ -127,8 +129,7 @@ def get_generalized_delta_rule(HEAD_SIZE):
         os.environ["TRITON_LOG_LEVEL"] = "ERROR"  # 只显示错误级别的日志
         os.environ["TRITON_DISABLE_AUTOTUNE"] = "1"  # 禁用自动调优日志
         if (
-            is_nvidia
-            and xla_bridge.get_backend().platform == "gpu"
+            xla_bridge.get_backend().platform == "gpu"
             and not KERNEL_TYPE.lower() == "native"
         ):
             from ops.jax_op import generalized_delta_rule

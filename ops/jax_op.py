@@ -1,4 +1,95 @@
-from ops.jax_kernel.chunk import *
+import jax
+import jax.numpy as jnp
+from keras import ops
+import triton
+from einops import rearrange
+from ops.jax_kernel.chunk_A_bwd import chunk_dplr_bwd_dqk_intra
+from ops.jax_kernel.chunk_A_fwd import chunk_dplr_fwd_intra
+from ops.jax_kernel.chunk_h_bwd import chunk_dplr_bwd_dhu
+from ops.jax_kernel.chunk_h_fwd import chunk_dplr_fwd_h
+from ops.jax_kernel.chunk_o_bwd import (
+    chunk_dplr_bwd_dAu,
+    chunk_dplr_bwd_dv,
+    chunk_dplr_bwd_o,
+)
+from ops.jax_kernel.chunk_o_fwd import chunk_dplr_fwd_o
+from ops.jax_kernel.wy_fast_bwd import chunk_dplr_bwd_wy
+from ops.jax_kernel.wy_fast_fwd import prepare_wy_repr_fwd
+from ops.jax_kernel.cumsum import chunk_rwkv6_fwd_cumsum
+from ops.get_torch_devices_info import (
+    autocast_custom_bwd,
+    autocast_custom_fwd,
+    input_guard,
+)
+
+CHUNKSIZE = 16
+
+
+def chunk_dplr_fwd(
+    q: jax.Array,
+    k: jax.Array,
+    v: jax.Array,
+    a: jax.Array,
+    b: jax.Array,
+    gk: jax.Array,
+    scale: float,
+    initial_state: jax.Array,
+    output_final_state: bool,
+    cu_seqlens=None,
+    chunk_size: int = 64,
+):
+    T = q.shape[1]
+    BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
+    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT, cu_seqlens=cu_seqlens)
+
+    A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_dplr_fwd_intra(
+        q=q,
+        k=k,
+        a=a,
+        b=b,
+        gi=gi,
+        ge=ge,
+        scale=scale,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+    )
+    del ge
+
+    # A_ab, A_ak, gi, ge torch.float32
+    # A_qk, A_qb, qg, kg, ag, bg, dtype=q.dtype, eg: bf16
+    w, u, _ = prepare_wy_repr_fwd(
+        ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, cu_seqlens=cu_seqlens, chunk_size=BT
+    )
+
+    del A_ab, A_ak
+    h, v_new, final_state = chunk_dplr_fwd_h(
+        kg=kg,
+        bg=bg,
+        v=v,
+        w=w,
+        u=u,
+        gk=gi,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+    )
+
+    del u, kg, bg, gi
+
+    o = chunk_dplr_fwd_o(
+        qg=qg,
+        v=v,
+        v_new=v_new,
+        A_qk=A_qk,
+        A_qb=A_qb,
+        h=h,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+    )
+    del v_new, h, A_qk, A_qb
+
+    return o, final_state
 
 
 def chunk_dplr_delta_rule_fwd(
@@ -12,7 +103,6 @@ def chunk_dplr_delta_rule_fwd(
     initial_state=None,
     output_final_state: bool = True,
     cu_seqlens=None,
-    head_first: bool = False,
 ):
     r"""
     Args:
@@ -60,17 +150,13 @@ def chunk_dplr_delta_rule_fwd(
                 f"The batch size is expected to be 1 rather than {q.shape[0]} when using `cu_seqlens`."
                 f"Please flatten variable-length inputs before processing."
             )
-        if head_first:
-            raise RuntimeError(
-                "Sequences with variable lengths are not supported for head-first mode"
-            )
         if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
             raise ValueError(
                 f"The number of initial states is expected to be equal to the number of input sequences, "
                 f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."
             )
     scale = k.shape[-1] ** -0.5 if scale is None else scale
-    chunk_size = 16
+    chunk_size = CHUNKSIZE
 
     o, final_state = chunk_dplr_fwd(
         q=q,
@@ -83,7 +169,6 @@ def chunk_dplr_delta_rule_fwd(
         initial_state=initial_state,
         output_final_state=output_final_state,
         chunk_size=chunk_size,
-        head_first=head_first,
     )
     return o, final_state
 
@@ -145,7 +230,6 @@ def chunk_dplr(
         initial_state=initial_state,
         output_final_state=True,
         cu_seqlens=None,
-        head_first=False,
     )
 
 
@@ -169,16 +253,161 @@ def chunk_dplr_fwd_jax(
         initial_state=initial_state,
         output_final_state=True,
         cu_seqlens=None,
-        head_first=False,
     )
     cache = (r, k, v, a, b, gk, initial_state)
     return [o, state], cache
 
 
+def chunk_dplr_bwd(
+    q: jax.Array,
+    k: jax.Array,
+    v: jax.Array,
+    a: jax.Array,
+    b: jax.Array,
+    gk: jax.Array,
+    initial_state,
+    scale,
+    do: jax.Array,
+    dht: jax.Array,
+    chunk_size: int = CHUNKSIZE,
+):
+    DTYPE = do.dtype
+    BT = chunk_size
+    cu_seqlens = None
+    scale = scale
+    if do != None:
+        do = ops.cast(do, q.dtype)
+    if dht != None:
+        dht = ops.cast(dht, q.dtype)
+
+    # ******* start recomputing everything, otherwise i believe the gpu memory will be exhausted *******
+    gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT, cu_seqlens=cu_seqlens)
+
+    A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_dplr_fwd_intra(
+        q=q,
+        k=k,
+        a=a,
+        b=b,
+        gi=gi,
+        ge=ge,
+        scale=scale,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+    )
+    w, u, A_ab_inv = prepare_wy_repr_fwd(
+        ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, cu_seqlens=cu_seqlens, chunk_size=BT
+    )
+    del A_ab
+    h, v_new, _ = chunk_dplr_fwd_h(
+        kg=kg,
+        bg=bg,
+        v=v,
+        w=w,
+        u=u,
+        gk=gi,
+        initial_state=initial_state,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+    )
+    del u
+    # ******* end of recomputation *******
+    # A_ak, A_ab_inv, gi, ge torch.float32
+    # A_qk, A_qb, qg, kg, ag, bg, v_new dtype=q.dtype, eg: bf16
+
+    dv_new_intra, dA_qk, dA_qb = chunk_dplr_bwd_dAu(
+        v=v,
+        v_new=v_new,
+        do=do,
+        A_qb=A_qb,
+        scale=scale,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+    )
+
+    dh, dh0, dv_new = chunk_dplr_bwd_dhu(
+        qg=qg,
+        bg=bg,
+        w=w,
+        gk=gi,
+        h0=initial_state,
+        dht=dht,
+        do=do,
+        dv=dv_new_intra,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+    )
+
+    dv = chunk_dplr_bwd_dv(
+        A_qk=A_qk, kg=kg, do=do, dh=dh, cu_seqlens=cu_seqlens, chunk_size=BT
+    )
+    del A_qk
+
+    dqg, dkg, dw, dbg, dgk_last = chunk_dplr_bwd_o(
+        k=kg,
+        b=bg,
+        v=v,
+        v_new=v_new,
+        do=do,
+        h=h,
+        dh=dh,
+        dv=dv_new,
+        w=w,
+        gk=gi,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+        scale=scale,
+    )
+    del v_new
+
+    dA_ab, dA_ak, dv, dag = chunk_dplr_bwd_wy(
+        A_ab_inv=A_ab_inv,
+        A_ak=A_ak,
+        v=v,
+        ag=ag,
+        dw=dw,
+        du=dv_new,
+        dv0=dv,
+        cu_seqlens=cu_seqlens,
+        chunk_size=BT,
+    )
+    del A_ak
+
+    dq, dk, da, db, dgk = chunk_dplr_bwd_dqk_intra(
+        q=q,
+        k=k,
+        a=a,
+        b=b,
+        gi=gi,
+        ge=ge,
+        dAqk=dA_qk,
+        dAqb=dA_qb,
+        dAak=dA_ak,
+        dAab=dA_ab,
+        dgk_last=dgk_last,
+        dqg=dqg,
+        dkg=dkg,
+        dag=dag,
+        dbg=dbg,
+        chunk_size=BT,
+        scale=scale,
+        cu_seqlens=cu_seqlens,
+    )
+
+    return (
+        ops.cast(dq, DTYPE),
+        ops.cast(dk, DTYPE),
+        ops.cast(dv, DTYPE),
+        ops.cast(da, DTYPE),
+        ops.cast(db, DTYPE),
+        ops.cast(dgk, DTYPE),
+        ops.cast(dh0, DTYPE),
+    )
+
+
 def chunk_dplr_bwd_jax(res, g):
     q, k, v, a, b, gk, initial_state = res
     do, dht = g
-    dq, dk, dv, da, db, dgk, _, dh0, _, _, _ = chunk_dplr_bwd(
+    dq, dk, dv, da, db, dgk, dh0 = chunk_dplr_bwd(
         q,
         k,
         v,
@@ -186,7 +415,6 @@ def chunk_dplr_bwd_jax(res, g):
         b,
         gk,
         initial_state,
-        head_first=False,
         scale=1,
         do=do,
         dht=dht,

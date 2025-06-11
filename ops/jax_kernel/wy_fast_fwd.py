@@ -1,43 +1,31 @@
-from typing import Tuple
+# -*- coding: utf-8 -*-
+# Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-import jax
-import jax.numpy as jnp
+from typing import Optional, Tuple
+
 import jax_triton as jt
+import jax
 import triton
 
-from ops.triton_kernel.wy_fast_fwd import fwd_prepare_wy_repr_kernel_chunk32
-from ops.triton_kernel.wy_fast_fwd import fwd_prepare_wy_repr_kernel_chunk64
-from ops.triton_kernel.wy_fast_fwd import fwd_wu_kernel
+from ops.get_torch_devices_info import prepare_chunk_indices
+from ops.triton_kernel.wy_fast_fwd import *
 
 
-def fwd_wu(
+def wu_fwd(
     ag: jax.Array,
     v: jax.Array,
     A_ak: jax.Array,
     A_ab_inv: jax.Array,
-    offsets=None,
-    indices=None,
-    head_first: bool = True,
-    chunk_size: int = 64,
+    cu_seqlens,
+    chunk_size: int,
 ) -> Tuple[jax.Array, jax.Array]:
-    if head_first:
-        B, H, T, K, V = *ag.shape, v.shape[-1]
-    else:
-        B, T, H, K, V = *ag.shape, v.shape[-1]
+    B, T, H, K, V = *ag.shape, v.shape[-1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
 
-    if offsets is None:
-        NT = triton.cdiv(T, BT)
-    else:
-        if indices is None:
-            indices = jnp.concat(
-                [
-                    jnp.arange(n)
-                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
-                ]
-            )
-            indices = jnp.stack([jnp.cumsum(jnp.equal(indices, 0), 0) - 1, indices], 1)
-        NT = len(indices)
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    )
+    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
     BK = min(triton.next_power_of_2(K), 64)
     BV = min(triton.next_power_of_2(V), 64)
 
@@ -45,86 +33,64 @@ def fwd_wu(
         jax.ShapeDtypeStruct(v.shape, v.dtype),
         jax.ShapeDtypeStruct(ag.shape, ag.dtype),
     ]
+    grid = (NT, B * H)
     w, u = jt.triton_call(
         ag,
         v,
         A_ab_inv,
         A_ak,
-        offsets=offsets,
-        indices=indices,
-        T=T,
+        T,
         H=H,
         K=K,
         V=V,
         BT=BT,
         BK=BK,
         BV=BV,
-        HEAD_FIRST=head_first,
-        USE_OFFSETS=offsets is not None,
-        grid=(int(NT), int(B * H)),
-        kernel=fwd_wu_kernel.fn,
+        grid=grid,
+        kernel=wu_fwd_kernel.fn,
         out_shape=out_shapes,
     )
-
     return w, u
 
 
-def fwd_prepare_wy_repr(
+def prepare_wy_repr_fwd(
     ag: jax.Array,
     v: jax.Array,
     A_ak: jax.Array,
     A_ab: jax.Array,
-    offsets=None,
-    indices=None,
-    head_first: bool = True,
+    cu_seqlens,
     chunk_size: int = 64,
 ) -> Tuple[jax.Array, jax.Array, jax.Array]:
-    if head_first:
-        B, H, T, K = ag.shape
-    else:
-        B, T, H, K = ag.shape
+    B, T, H, _ = ag.shape
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
 
-    if offsets is None:
-        NT = triton.cdiv(T, BT)
-    else:
-        if indices is None:
-            indices = jnp.concat(
-                [
-                    jnp.arange(n)
-                    for n in triton.cdiv(offsets[1:] - offsets[:-1], BT).tolist()
-                ]
-            )
-            indices = jnp.stack([jnp.cumsum(jnp.equal(indices, 0), 0) - 1, indices], 1)
-        NT = len(indices)
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    )
+    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
     BC = min(BT, 32)
     fwd_fn = (
-        fwd_prepare_wy_repr_kernel_chunk64
+        prepare_wy_repr_fwd_kernel_chunk64
         if BT == 64
-        else fwd_prepare_wy_repr_kernel_chunk32
+        else prepare_wy_repr_fwd_kernel_chunk32
     )
+    grid = (NT, B * H)
     A_ab_inv = jt.triton_call(
         A_ab,
-        offsets=offsets,
-        indices=indices,
-        T=T,
+        T,
         H=H,
         BT=BT,
         BC=BC,
-        HEAD_FIRST=head_first,
-        USE_OFFSETS=offsets is not None,
-        grid=(int(NT), int(B * H)),
-        kernel=fwd_fn.fn,
+        grid=grid,
+        kernel=fwd_fn,
         out_shape=jax.ShapeDtypeStruct(A_ab.shape, A_ab.dtype),
     )
-    w, u = fwd_wu(
-        ag=ag,
-        v=v,
-        A_ak=A_ak,
-        A_ab_inv=A_ab_inv,
-        offsets=offsets,
-        indices=indices,
-        head_first=head_first,
-        chunk_size=BT,
+    w, u = wu_fwd(
+        ag=ag, v=v, A_ak=A_ak, A_ab_inv=A_ab_inv, cu_seqlens=cu_seqlens, chunk_size=BT
     )
     return w, u, A_ab_inv
+
+
+fwd_prepare_wy_repr = prepare_wy_repr_fwd
+
+fwd_wu = wu_fwd

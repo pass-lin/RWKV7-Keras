@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import triton
 
-from ops.get_torch_devices_info import is_triton_shared_mem_enough
-from ops.torch_kernel.utils import prepare_chunk_offsets
-from ops.triton_kernel.chunk_h_fwd import chunk_dplr_fwd_kernel_h
+from ops.get_torch_devices_info import prepare_chunk_indices, check_shared_mem
+from ops.triton_kernel.chunk_h_fwd import *
 
 
 def chunk_dplr_fwd_h(
@@ -21,30 +19,33 @@ def chunk_dplr_fwd_h(
     gk: torch.Tensor,
     initial_state: Optional[torch.Tensor] = None,
     output_final_state: bool = False,
-    offsets: Optional[torch.LongTensor] = None,
-    head_first: bool = True,
+    cu_seqlens: Optional[torch.LongTensor] = None,
     chunk_size: int = 64,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    if head_first:
-        B, H, T, K, V = *kg.shape, u.shape[-1]
-    else:
-        B, T, H, K, V = *kg.shape, u.shape[-1]
+    B, T, H, K, V = *kg.shape, u.shape[-1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
+
+    chunk_indices = (
+        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
+    )
     # N: the actual number of sequences in the batch with either equal or variable lengths
-    if offsets is None:
+    if cu_seqlens is None:
         N, NT, chunk_offsets = B, triton.cdiv(T, BT), None
     else:
-        N = len(offsets) - 1
-        chunk_offsets = prepare_chunk_offsets(offsets, BT)
-        NT = chunk_offsets[-1]
+        raise (1)
+        N, NT, chunk_offsets = (
+            len(cu_seqlens) - 1,
+            len(chunk_indices),
+            prepare_chunk_offsets(cu_seqlens, BT),
+        )
     BK = triton.next_power_of_2(K)
     assert BK <= 256, "current kernel does not support head dimension larger than 256."
     # H100 can have larger block size
 
-    if is_triton_shared_mem_enough(233472, kg.device.index):
+    if check_shared_mem("hopper", kg.device.index):
         BV = 64
         BC = 64 if K <= 128 else 32
-    elif is_triton_shared_mem_enough(131072, kg.device.index):  # A100
+    elif check_shared_mem("ampere", kg.device.index):  # A100
         BV = 32
         BC = 32
     else:
@@ -58,10 +59,7 @@ def chunk_dplr_fwd_h(
         "NK > 1 is not supported because it involves time-consuming synchronization"
     )
 
-    if head_first:
-        h = kg.new_empty(B, H, NT, K, V)
-    else:
-        h = kg.new_empty(B, NT, H, K, V)
+    h = kg.new_empty(B, NT, H, K, V)
     final_state = (
         kg.new_empty(N, H, K, V, dtype=torch.float32) if output_final_state else None
     )
@@ -78,8 +76,6 @@ def chunk_dplr_fwd_h(
         gk=gk,
         h0=initial_state,
         ht=final_state,
-        offsets=offsets,
-        chunk_offsets=chunk_offsets,
         T=T,
         H=H,
         K=K,
@@ -88,7 +84,5 @@ def chunk_dplr_fwd_h(
         BC=BC,
         BK=BK,
         BV=BV,
-        NT=NT,
-        HEAD_FIRST=head_first,
     )
     return h, v_new, final_state
