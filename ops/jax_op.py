@@ -245,13 +245,13 @@ def chunk_dplr_bwd(
     dht: jax.Array,
     chunk_size: int = CHUNKSIZE,
 ):
-    DTYPE = do.dtype
+    #DTYPE = do.dtype
     BT = chunk_size
     scale = scale
-    if do != None:
-        do = ops.cast(do, q.dtype)
-    if dht != None:
-        dht = ops.cast(dht, q.dtype)
+    #if do != None:
+    #    do = do, q.dtype)
+    #if dht != None:
+    #    dht = dht, q.dtype)
 
     # ******* start recomputing everything, otherwise i believe the gpu memory will be exhausted *******
     gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT)
@@ -294,7 +294,6 @@ def chunk_dplr_bwd(
         scale=scale,
         chunk_size=BT,
     )
-    return v, v_new, do, A_qb, dv_new_intra, dA_qk, dA_qb
     dh, dh0, dv_new = chunk_dplr_bwd_dhu(
         qg=qg,
         bg=bg,
@@ -336,9 +335,10 @@ def chunk_dplr_bwd(
         dv0=dv,
         chunk_size=BT,
     )
+    
     del A_ak
 
-    dq, dk, da, db, dgk = chunk_dplr_bwd_dqk_intra(
+    dq, dk, da, db, dgk =  chunk_dplr_bwd_dqk_intra(
         q=q,
         k=k,
         a=a,
@@ -357,22 +357,22 @@ def chunk_dplr_bwd(
         chunk_size=BT,
         scale=scale,
     )
-
     return (
-        ops.cast(dq, DTYPE),
-        ops.cast(dk, DTYPE),
-        ops.cast(dv, DTYPE),
-        ops.cast(da, DTYPE),
-        ops.cast(db, DTYPE),
-        ops.cast(dgk, DTYPE),
-        ops.cast(dh0, DTYPE),
+        jnp.asarray(dq,q.dtype),
+        jnp.asarray(dk,k.dtype),
+        jnp.asarray(dv,v.dtype),
+        jnp.asarray(da,a.dtype),
+        jnp.asarray(db,b.dtype),
+        jnp.asarray(dgk,gk.dtype),
+        dh0,
     )
+
 
 
 def chunk_dplr_bwd_jax(res, g):
     q, k, v, a, b, gk, initial_state = res
     do, dht = g
-    dq, dk, dv, da, db, dgk, dh0 = chunk_dplr_bwd(
+    return chunk_dplr_bwd(
         q,
         k,
         v,
@@ -385,21 +385,13 @@ def chunk_dplr_bwd_jax(res, g):
         dht=dht,
     )
 
-    return (
-        dq,
-        dk,
-        dv,
-        da,
-        db,
-        dgk,
-        dh0,
-    )
 
 
 chunk_dplr.defvjp(chunk_dplr_fwd_jax, chunk_dplr_bwd_jax)
 
 
 def transpose_head(x, head_first):
+    #x = jnp.asarray(x,"bfloat16")
     if head_first:
         return jnp.transpose(x, (0, 2, 1, 3))
     else:
@@ -442,6 +434,7 @@ def generalized_delta_rule(
         head_first (bool):
             whether to use head first. Recommended to be False to avoid extra transposes.
     """
+    DTYPE = r.dtype
     r = transpose_head(r, head_first)
     k = transpose_head(k, head_first)
     v = transpose_head(v, head_first)
@@ -463,5 +456,5 @@ def generalized_delta_rule(
         initial_state=initial_state,
     )
     if output_final_state:
-        return o, final_state
-    return o
+        return jnp.asarray(o,DTYPE), final_state
+    return jnp.asarray(o,DTYPE)

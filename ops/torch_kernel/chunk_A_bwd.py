@@ -73,8 +73,6 @@ def chunk_dplr_bwd_dqk_intra(
         dbg=dbg,
         da=da,
         db=db,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
         scale=scale,
         T=T,
         H=H,
@@ -84,7 +82,6 @@ def chunk_dplr_bwd_dqk_intra(
         BK=BK,
         GATHER_SUPPORTED=is_gather_supported,
     )
-
     dgk_output = torch.empty_like(dgk)
 
     def grid(meta):
@@ -94,10 +91,8 @@ def chunk_dplr_bwd_dqk_intra(
         dgk=dgk,
         dgk_offset=dgk_offset,
         dgk_last=dgk_last,
-        dgk_output=dgk_output,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
         T=T,
+        dgk_output=dgk_output,
         H=H,
         K=K,
         BT=BT,

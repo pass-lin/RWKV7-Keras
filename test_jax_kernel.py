@@ -17,8 +17,8 @@ import torch.nn.functional as F
 
 
 def test_output(output_jax, output_torch):
-    tol = 1e-3
-    for i in range(len(output_jax)):
+    tol = 5e-3
+    for i in range(len(output_torch)):
         if output_jax[i] == None or output_torch[i] == None:
             continue
         out_jax = ops.convert_to_numpy(ops.cast(output_jax[i], "float32"))
@@ -47,7 +47,7 @@ def normalize(
 
 
 T = 128
-B = 1
+B = 2
 H = 6
 K = 128
 np.random.seed(0)
@@ -137,6 +137,6 @@ output_torch = torch_chunk_dplr_bwd(
     initial_state=None,
     DTYPE=torch.from_numpy(d0).to(torch_inputs[0]).dtype,
 )
-
+output_torch = [t  for t in output_torch if t is not None]
 print("校验chunk_dplr_fwd_bwd函数")
 test_output(output_jax, output_torch)

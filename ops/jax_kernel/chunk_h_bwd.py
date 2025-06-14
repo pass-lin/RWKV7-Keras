@@ -30,10 +30,10 @@ def chunk_dplr_bwd_dhu(
         "current kernel does not support head dimension being larger than 256."
     )
     # H100
-    if check_shared_mem("hopper", jax.devices().index(qg.device)):
+    if check_shared_mem("hopper"):
         BV = 64
         BC = 64 if K <= 128 else 32
-    elif check_shared_mem("ampere", jax.devices().index(qg.device)):  # A100
+    elif check_shared_mem("ampere"):  # A100
         BV = 32
         BC = 32
     else:  # Etc: 4090

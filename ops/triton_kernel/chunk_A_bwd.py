@@ -8,7 +8,7 @@ import triton.language as tl
 from ops.triton_kernel.utils import exp, gather, use_cuda_graph
 
 
-@triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
+
 @triton.autotune(
     configs=[
         triton.Config({}, num_warps=num_warps, num_stages=num_stages)
@@ -34,27 +34,24 @@ def chunk_dplr_bwd_kernel_intra(
     dkg,
     dag,
     dbg,
+    T,
     dq,
     dk,
     da,
     db,
     dgk,
     dgk_offset,
-    cu_seqlens,
-    chunk_indices,
     scale: tl.constexpr,
-    T,
     H: tl.constexpr,
     K: tl.constexpr,
     BT: tl.constexpr,
     BC: tl.constexpr,
     BK: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
     GATHER_SUPPORTED: tl.constexpr,
 ):
     i_k, i_t, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     i_b, i_h = i_bh // H, i_bh % H
-    if IS_VARLEN:
+    if False:
         i_n, i_t = (
             tl.load(chunk_indices + i_t * 2).to(tl.int32),
             tl.load(chunk_indices + i_t * 2 + 1).to(tl.int32),
@@ -260,11 +257,7 @@ def chunk_dplr_bwd_kernel_intra(
     )
 
 
-@triton.heuristics(
-    {
-        "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
-    }
-)
+
 @triton.autotune(
     configs=[
         triton.Config({"BK": BK}, num_warps=num_warps, num_stages=num_stages)
@@ -280,19 +273,16 @@ def chunk_dplr_bwd_dgk_kernel(
     dgk,
     dgk_offset,
     dgk_last,
-    dgk_output,
-    cu_seqlens,
-    chunk_indices,
     T,
+    dgk_output,
     H: tl.constexpr,
     K: tl.constexpr,
     BT: tl.constexpr,
     BK: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
 ):
     i_t, i_k, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     i_b, i_h = i_bh // H, i_bh % H
-    if IS_VARLEN:
+    if False:
         i_tg = i_t
         i_n, i_t = (
             tl.load(chunk_indices + i_t * 2).to(tl.int32),

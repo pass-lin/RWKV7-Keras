@@ -146,7 +146,6 @@ def chunk_dplr_bwd(
         scale=scale,
         chunk_size=BT,
     )
-    return v, v_new, do, A_qb, dv_new_intra, dA_qk, dA_qb
     dh, dh0, dv_new = chunk_dplr_bwd_dhu(
         qg=qg,
         bg=bg,
@@ -188,9 +187,10 @@ def chunk_dplr_bwd(
         dv0=dv,
         chunk_size=BT,
     )
+   
     del A_ak
-
-    dq, dk, da, db, dgk = chunk_dplr_bwd_dqk_intra(
+    
+    dq, dk, da, db, dgk =   chunk_dplr_bwd_dqk_intra(
         q=q,
         k=k,
         a=a,
@@ -211,14 +211,14 @@ def chunk_dplr_bwd(
     )
 
     return (
-        cast(dq.to(q), DTYPE),
-        cast(dk.to(k), DTYPE),
-        cast(dv.to(v), DTYPE),
-        cast(da.to(a), DTYPE),
-        cast(db.to(b), DTYPE),
-        cast(dgk.to(gk), DTYPE),
+        dq.to(q),
+        dk.to(k),
+        dv.to(v),
+        da.to(a),
+        db.to(b),
+        dgk.to(gk),
         None,
-        cast(dh0, DTYPE),
+        dh0,
         None,
         None,
     )

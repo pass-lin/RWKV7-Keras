@@ -8,7 +8,7 @@ import jax
 import triton
 
 
-from ops.get_torch_devices_info import check_shared_mem, prepare_chunk_indices
+from ops.get_torch_devices_info import check_shared_mem
 from ops.triton_kernel.wy_fast_bwd import *
 
 

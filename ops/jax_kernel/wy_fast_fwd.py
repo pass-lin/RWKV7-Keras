@@ -7,7 +7,7 @@ import jax_triton as jt
 import jax
 import triton
 
-from ops.get_torch_devices_info import prepare_chunk_indices
+
 from ops.triton_kernel.wy_fast_fwd import *
 
 

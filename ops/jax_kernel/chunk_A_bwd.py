@@ -68,23 +68,18 @@ def chunk_dplr_bwd_dqk_intra(
         dkg,
         dag,
         dbg,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
+        T,
         scale=scale,
-        T=T,
         H=H,
         K=K,
         BT=BT,
         BC=BT,
         BK=BK,
         GATHER_SUPPORTED=is_gather_supported,
-        IS_VARLEN=cu_seqlens is not None,
-        kernel=chunk_dplr_bwd_kernel_intra.fn,
+        kernel=chunk_dplr_bwd_kernel_intra,
         out_shape=out_shapes,
         grid=grid,
     )
-
-    dgk_output = jax.ShapeDtypeStruct(dgk.shape, dgk.dtype)
 
     def grid(meta):
         return (NT, triton.cdiv(K, meta["BK"]), B * H)
@@ -93,15 +88,12 @@ def chunk_dplr_bwd_dqk_intra(
         dgk,
         dgk_offset,
         dgk_last,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
-        T=T,
+        T,
         H=H,
         K=K,
         BT=BT,
-        IS_VARLEN=cu_seqlens is not None,
-        kernel=chunk_dplr_bwd_dgk_kernel.fn,
-        out_shape=out_shapes,
-        grid=(NT, triton.cdiv(K, BK), B * H),
+        kernel=chunk_dplr_bwd_dgk_kernel,
+        out_shape=jax.ShapeDtypeStruct(dgk.shape, dgk.dtype),
+        grid=grid,
     )
     return dq, dk, da, db, dgk_output
