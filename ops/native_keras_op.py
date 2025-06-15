@@ -3,6 +3,7 @@ from keras import ops
 
 
 def transpose_head(x, head_first):
+    x = ops.cast(x, "float32")
     if head_first:
         return ops.transpose(x, (0, 2, 1, 3))
     else:
@@ -20,6 +21,7 @@ def generalized_delta_rule(
     output_final_state: bool = True,
     head_first: bool = False,
 ):
+    DTYPE = r.dtype
     B, T, H, N = ops.shape(r)
     r = transpose_head(r, head_first)
 
@@ -69,5 +71,5 @@ def generalized_delta_rule(
 
     out = ops.transpose(out, [1, 0, 2, 3])
     if output_final_state:
-        return out, state
-    return out
+        return ops.cast(out,DTYPE), state
+    return ops.cast(out,DTYPE)

@@ -376,7 +376,6 @@ def chunk_rwkv7(
     initial_state: torch.Tensor = None,
     output_final_state: bool = True,
     cu_seqlens: Optional[torch.LongTensor] = None,
-    head_first: bool = False,
 ):
     """
     Args:
@@ -425,7 +424,6 @@ def chunk_rwkv7(
         scale=scale,
         initial_state=initial_state,
         output_final_state=output_final_state,
-        head_first=head_first,
     )
 
 
@@ -447,12 +445,12 @@ def generalized_delta_rule(
     head_first: bool = False,
 ):
     dtype = r.dtype
-    r = transpose_head(r)
-    k = transpose_head(k)
-    v = transpose_head(v)
-    a = transpose_head(a)
-    b = transpose_head(b)
-    w = transpose_head(w)
+    r = transpose_head(r, head_first)
+    k = transpose_head(k, head_first)
+    v = transpose_head(v, head_first)
+    a = transpose_head(a, head_first)
+    b = transpose_head(b, head_first)
+    w = transpose_head(w, head_first)
     out, state = chunk_rwkv7(
         r=r,
         k=k,
@@ -462,7 +460,6 @@ def generalized_delta_rule(
         w=w,
         initial_state=initial_state,
         output_final_state=output_final_state,
-        head_first=head_first,
     )
     out = transpose_head(out, dtype)
     if output_final_state:
