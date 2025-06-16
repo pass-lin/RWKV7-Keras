@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional
 import jax_triton as jt
 import jax
 import triton
 from ops.triton_kernel.chunk_A_bwd import *
 from ops.triton_kernel.utils import is_gather_supported
-from ops.get_torch_devices_info import check_shared_mem, prepare_chunk_indices
+from ops.get_torch_devices_info import check_shared_mem
 
 
 def chunk_dplr_bwd_dqk_intra(
@@ -27,8 +26,7 @@ def chunk_dplr_bwd_dqk_intra(
     dbg: jax.Array,
     dgk_last: jax.Array,
     scale: float = 1.0,
-    cu_seqlens=None,
-    chunk_size: int = 64,
+    chunk_size: int = 16,
 ):
     B, T, H, K = q.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
@@ -38,11 +36,10 @@ def chunk_dplr_bwd_dqk_intra(
         else min(32, triton.next_power_of_2(K))
     )
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
     NK = triton.cdiv(K, BK)
+    grid = (NK, NT, B * H)
+
     out_shapes = [
         jax.ShapeDtypeStruct(q.shape, q.dtype),
         jax.ShapeDtypeStruct(k.shape, k.dtype),
@@ -52,7 +49,6 @@ def chunk_dplr_bwd_dqk_intra(
         jax.ShapeDtypeStruct(gi.shape, "float32"),
     ]
 
-    grid = (NK, NT, B * H)
     dq, dk, da, db, dgk, dgk_offset = jt.triton_call(
         q,
         k,

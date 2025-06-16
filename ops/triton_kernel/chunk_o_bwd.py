@@ -139,11 +139,6 @@ def chunk_dplr_bwd_kernel_dAu(
     tl.store(p_dA_qb, b_dA_qb.to(p_dA_qb.dtype.element_ty), boundary_check=(0, 1))
 
 
-@triton.heuristics(
-    {
-        "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
-    }
-)
 @triton.autotune(
     configs=[
         triton.Config({}, num_warps=num_warps, num_stages=num_stages)
@@ -165,26 +160,23 @@ def chunk_dplr_bwd_o_kernel(
     gk,
     k,
     b,
+    T,
     dq,
     dk,
     dw,
     db,
     dgk_last,
-    cu_seqlens,
-    chunk_indices,
-    T,
     H: tl.constexpr,
     K: tl.constexpr,
     V: tl.constexpr,
     BT: tl.constexpr,
     BK: tl.constexpr,
     BV: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
 ):
     i_k, i_t, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     i_b, i_h = i_bh // H, i_bh % H
 
-    if IS_VARLEN:
+    if False:
         i_tg = i_t
         i_n, i_t = (
             tl.load(chunk_indices + i_t * 2).to(tl.int32),
@@ -302,11 +294,6 @@ def chunk_dplr_bwd_o_kernel(
     tl.store(p_dq, b_dq.to(p_dq.dtype.element_ty), boundary_check=(0, 1))
 
 
-@triton.heuristics(
-    {
-        "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
-    }
-)
 @triton.autotune(
     configs=[
         triton.Config({"BK": BK, "BV": BV}, num_warps=num_warps, num_stages=num_stages)
@@ -324,21 +311,18 @@ def chunk_dplr_bwd_kernel_dv(
     kg,
     do,
     dh,
-    dv,
-    cu_seqlens,
-    chunk_indices,
     T,
+    dv,
     H: tl.constexpr,
     K: tl.constexpr,
     V: tl.constexpr,
     BT: tl.constexpr,
     BK: tl.constexpr,
     BV: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
 ):
     i_v, i_t, i_bh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     i_b, i_h = i_bh // H, i_bh % H
-    if IS_VARLEN:
+    if False:
         i_tg = i_t
         i_n, i_t = (
             tl.load(chunk_indices + i_t * 2).to(tl.int32),

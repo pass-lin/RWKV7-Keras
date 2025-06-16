@@ -3,7 +3,6 @@ from typing import Optional
 
 import torch
 import triton
-from einops import rearrange
 
 from ops.torch_kernel.chunk_A_bwd import chunk_dplr_bwd_dqk_intra
 from ops.torch_kernel.chunk_A_fwd import chunk_dplr_fwd_intra
@@ -46,6 +45,7 @@ def chunk_dplr_fwd(
     T = q.shape[1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
     gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT)
+
     A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_dplr_fwd_intra(
         q=q,
         k=k,
@@ -62,6 +62,7 @@ def chunk_dplr_fwd(
     # A_ab, A_ak, gi, ge torch.float32
     # A_qk, A_qb, qg, kg, ag, bg, dtype=q.dtype, eg: bf16
     w, u, _ = prepare_wy_repr_fwd(ag=ag, A_ab=A_ab, A_ak=A_ak, v=v, chunk_size=BT)
+
     del A_ab, A_ak
     h, v_new, final_state = chunk_dplr_fwd_h(
         kg=kg,
@@ -78,13 +79,7 @@ def chunk_dplr_fwd(
     del u, kg, bg, gi
 
     o = chunk_dplr_fwd_o(
-        qg=qg,
-        v=v,
-        v_new=v_new,
-        A_qk=A_qk,
-        A_qb=A_qb,
-        h=h,
-        chunk_size=BT,
+        qg=qg, v=v, v_new=v_new, A_qk=A_qk, A_qb=A_qb, h=h, chunk_size=BT
     )
     del v_new, h, A_qk, A_qb
 
@@ -102,7 +97,6 @@ def chunk_dplr_bwd(
     scale,
     do,
     dht,
-    DTYPE,
     BT: int = 16,
 ):
     # ******* start recomputing everything, otherwise i believe the gpu memory will be exhausted *******
@@ -123,29 +117,17 @@ def chunk_dplr_bwd(
     )
     del A_ab
     h, v_new, _ = chunk_dplr_fwd_h(
-        kg=kg,
-        bg=bg,
-        v=v,
-        w=w,
-        u=u,
-        gk=gi,
-        initial_state=initial_state,
-        chunk_size=BT,
+        kg=kg, bg=bg, v=v, w=w, u=u, gk=gi, initial_state=initial_state, chunk_size=BT
     )
-
     del u
     # ******* end of recomputation *******
     # A_ak, A_ab_inv, gi, ge torch.float32
     # A_qk, A_qb, qg, kg, ag, bg, v_new dtype=q.dtype, eg: bf16
 
     dv_new_intra, dA_qk, dA_qb = chunk_dplr_bwd_dAu(
-        v=v,
-        v_new=v_new,
-        do=do,
-        A_qb=A_qb,
-        scale=scale,
-        chunk_size=BT,
+        v=v, v_new=v_new, do=do, A_qb=A_qb, scale=scale, chunk_size=BT
     )
+
     dh, dh0, dv_new = chunk_dplr_bwd_dhu(
         qg=qg,
         bg=bg,
@@ -187,10 +169,9 @@ def chunk_dplr_bwd(
         dv0=dv,
         chunk_size=BT,
     )
-   
     del A_ak
-    
-    dq, dk, da, db, dgk =   chunk_dplr_bwd_dqk_intra(
+
+    return chunk_dplr_bwd_dqk_intra(
         q=q,
         k=k,
         a=a,
@@ -209,7 +190,6 @@ def chunk_dplr_bwd(
         chunk_size=BT,
         scale=scale,
     )
-
     return (
         dq.to(q),
         dk.to(k),
@@ -264,15 +244,10 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
     @input_guard
     @autocast_custom_bwd
     def backward(ctx, do: torch.Tensor, dht: torch.Tensor):
-        DTYPE = do.dtype
         q, k, v, a, b, gk, initial_state = ctx.saved_tensors
         BT = ctx.chunk_size
         cu_seqlens = ctx.cu_seqlens
         scale = ctx.scale
-        if do != None:
-            do = cast(do, q.dtype)
-        if dht != None:
-            dht = cast(dht, q.dtype)
 
         return chunk_dplr_bwd(
             q,
@@ -285,8 +260,6 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
             initial_state,
             do,
             dht,
-            DTYPE,
-            cu_seqlens,
             BT,
         )
 
@@ -307,18 +280,18 @@ def chunk_dplr_delta_rule(
     r"""
     Args:
         q (torch.Tensor):
-            queries of shape `[B, T, H, K]` if `head_first=False` else `[B, H, T, K]`.
+            queries of shape `[B, T, H, K]`
         k (torch.Tensor):
-            keys of shape `[B, T, H, K]` if `head_first=False` else `[B, H, T, K]`.
+            keys of shape `[B, T, H, K]`
         v (torch.Tensor):
-            values of shape `[B, T, H, V]` if `head_first=False` else `[B, H, T, V]`.
+            values of shape `[B, T, H, V]`
         a (torch.Tensor):
-            activations of shape `[B, T, H, K]` if `head_first=False` else `[B, H, T, K]`.
+            activations of shape `[B, T, H, K]`
         b (torch.Tensor):
-            betas of shape `[B, T, H, K]` if `head_first=False` else `[B, H, T, K]`.
+            betas of shape `[B, T, H, K]`
         gk (torch.Tensor):
-            gk of shape `[B, T, H, K]` if `head_first=False` else `[B, H, T, K]`. decay term in log space!
-        scale (Optional[int]):
+            gk of shape `[B, T, H, K]`  decay term in log space!
+        scale (Optional[float]):
             Scale factor for the RetNet attention scores.
             If not provided, it will default to `1 / sqrt(K)`. Default: `None`.
         initial_state (Optional[torch.Tensor]):
@@ -347,7 +320,17 @@ def chunk_dplr_delta_rule(
             category=RuntimeWarning,
             stacklevel=2,
         )
-    assert cu_seqlens is None
+    if cu_seqlens is not None:
+        if q.shape[0] != 1:
+            raise ValueError(
+                f"The batch size is expected to be 1 rather than {q.shape[0]} when using `cu_seqlens`."
+                f"Please flatten variable-length inputs before processing."
+            )
+        if initial_state is not None and initial_state.shape[0] != len(cu_seqlens) - 1:
+            raise ValueError(
+                f"The number of initial states is expected to be equal to the number of input sequences, "
+                f"i.e., {len(cu_seqlens) - 1} rather than {initial_state.shape[0]}."
+            )
     scale = k.shape[-1] ** -0.5 if scale is None else scale
     o, final_state = ChunkDPLRDeltaRuleFunction.apply(
         q,
@@ -375,25 +358,24 @@ def chunk_rwkv7(
     scale: float = 1.0,
     initial_state: torch.Tensor = None,
     output_final_state: bool = True,
-    cu_seqlens: Optional[torch.LongTensor] = None,
 ):
     """
     Args:
         r (torch.Tensor):
-            r of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+            r of shape `[B, H, T, K]` .
         k (torch.Tensor):
-            k of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+            k of shape `[B, H, T, K]` .
         v (torch.Tensor):
             v of shape `[B, H, T, V]` if `head_first=True` else `[B, T, H, V]`.
         a (torch.Tensor):
-            a of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+            a of shape `[B, H, T, K]` .
         b (torch.Tensor):
-            b of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+            b of shape `[B, H, T, K]` .
         w (torch.Tensor):
-            decay of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`, kernel
+            decay of shape `[B, H, T, K]` , kernel
             will apply log_w = -torch.exp(w)
         log_w (torch.Tensor):
-            log decay of shape `[B, H, T, K]` if `head_first=True` else `[B, T, H, K]`.
+            log decay of shape `[B, H, T, K]` .
         scale (float):
             scale of the attention.
         initial_state (Optional[torch.Tensor]):

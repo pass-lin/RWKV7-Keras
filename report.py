@@ -7,14 +7,9 @@ os.environ["TRITON_PRINT_AUTOTUNING"] = "-1"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = "platform"
 os.environ["JAX_LOG_COMPILE"] = "False"
 
-import triton
-import triton.language as tl
 
 # use kernel by torch
 import torch
-from ops.triton_kernel.utils import use_cuda_graph
-import jax_triton as jt
-import jax
 import jax.numpy as jnp
 
 """

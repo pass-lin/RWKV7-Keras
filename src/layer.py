@@ -3,7 +3,6 @@ from keras import initializers
 from keras import ops
 from keras.layers import Layer
 from ops import get_generalized_delta_rule
-from ops import USE_KERNEL
 
 
 class TimeShift(Layer):
@@ -105,7 +104,7 @@ class RWKV7_TimeMix(Layer):
         self.decay_lora = decay_lora
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.initial_state = None
-        self.RWKV7_OP = get_generalized_delta_rule(head_size)
+        self.RWKV7_OP, self.USE_KERNEL = get_generalized_delta_rule(head_size)
         assert self.hidden_size % self.n_head == 0
 
     def build(self, input_shape):
@@ -272,7 +271,7 @@ class RWKV7_TimeMix(Layer):
 
         k = k * (1 + (a - 1) * self.k_a)
         if padding_mask is not None:
-            if USE_KERNEL:
+            if self.USE_KERNEL:
                 v *= padding_mask
             else:
                 w = w * padding_mask + 1 - padding_mask

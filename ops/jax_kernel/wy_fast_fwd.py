@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import jax_triton as jt
 import jax
@@ -43,7 +43,7 @@ def wu_fwd(
         BK=BK,
         BV=BV,
         grid=grid,
-        kernel=wu_fwd_kernel.fn,
+        kernel=wu_fwd_kernel,
         out_shape=out_shapes,
     )
     return w, u

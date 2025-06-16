@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import jax_triton as jt
 import jax
 import triton
 
-from ops.get_torch_devices_info import prepare_chunk_indices, check_shared_mem
+from ops.get_torch_devices_info import check_shared_mem
 from ops.triton_kernel.chunk_o_bwd import *
 
 
@@ -16,16 +16,12 @@ def chunk_dplr_bwd_dv(
     kg: jax.Array,
     do: jax.Array,
     dh: jax.Array,
-    cu_seqlens=None,
     chunk_size: int = 64,
 ) -> jax.Array:
     B, T, H, K, V = *kg.shape, do.shape[-1]
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
     def grid(meta):
         return (triton.cdiv(V, meta["BV"]), NT, B * H)
@@ -35,15 +31,12 @@ def chunk_dplr_bwd_dv(
         kg,
         do,
         dh,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
-        T=T,
+        T,
         H=H,
         K=K,
         V=V,
         BT=BT,
-        IS_VARLEN=cu_seqlens is not None,
-        kernel=chunk_dplr_bwd_kernel_dv.fn,
+        kernel=chunk_dplr_bwd_kernel_dv,
         out_shape=jax.ShapeDtypeStruct(do.shape, do.dtype),
         grid=grid,
     )
@@ -61,17 +54,13 @@ def chunk_dplr_bwd_o(
     dh: jax.Array,
     dv: jax.Array,
     w: jax.Array,
-    cu_seqlens=None,
     chunk_size: int = 64,
     scale: float = 1.0,
 ) -> Tuple[jax.Array, jax.Array, jax.Array]:
     B, T, H, K, V = *w.shape, v.shape[-1]
 
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
     BK = (
         min(triton.next_power_of_2(K), 64)
@@ -104,17 +93,14 @@ def chunk_dplr_bwd_o(
         gk,
         k,
         b,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
-        T=T,
+        T,
         H=H,
         K=K,
         V=V,
         BT=BT,
         BK=BK,
         BV=BV,
-        IS_VARLEN=cu_seqlens is not None,
-        kernel=chunk_dplr_bwd_o_kernel.fn,
+        kernel=chunk_dplr_bwd_o_kernel,
         out_shape=out_shapes,
         grid=grid,
     )

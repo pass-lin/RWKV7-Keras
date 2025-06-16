@@ -3,8 +3,7 @@ from distutils.util import strtobool
 import os
 from keras import ops
 
-KERNEL_TYPE = os.environ.get("KERNEL_TYPE", "cuda")
-USE_KERNEL = False
+KERNEL_TYPE = os.environ.get("KERNEL_TYPE", "triton")
 
 
 def transpose_head(x, head_first):
@@ -14,16 +13,19 @@ def transpose_head(x, head_first):
         return x
 
 
-def get_generalized_delta_rule(HEAD_SIZE):
-    global USE_KERNEL
+def get_generalized_delta_rule(HEAD_SIZE=None):
+    USE_KERNEL = False
     if keras.config.backend() == "torch":
         import torch
 
-        USE_KERNEL = True
         if KERNEL_TYPE.lower() == "triton":
-            from ops.native_keras_op import generalized_delta_rule
+            from ops.torch_op import generalized_delta_rule
+
+            USE_KERNEL = True
+
         elif KERNEL_TYPE.lower() == "cuda":
             CHUNK_LEN = 16
+            USE_KERNEL = True
             from torch.utils.cpp_extension import load
 
             flags = [
@@ -130,7 +132,7 @@ def get_generalized_delta_rule(HEAD_SIZE):
         os.environ["TRITON_DISABLE_AUTOTUNE"] = "1"  # 禁用自动调优日志
         if (
             xla_bridge.get_backend().platform == "gpu"
-            and not KERNEL_TYPE.lower() == "native"
+            and KERNEL_TYPE.lower() == "triton"
         ):
             from ops.jax_op import generalized_delta_rule
 
@@ -142,4 +144,4 @@ def get_generalized_delta_rule(HEAD_SIZE):
 
     else:
         from ops.native_keras_op import generalized_delta_rule
-    return generalized_delta_rule
+    return generalized_delta_rule, USE_KERNEL

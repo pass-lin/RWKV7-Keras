@@ -5,10 +5,9 @@
 import triton
 import triton.language as tl
 
-from ops.triton_kernel.utils import is_intel_alchemist, use_cuda_graph
+from ops.triton_kernel.utils import use_cuda_graph
 
-# https://github.com/intel/intel-xpu-backend-for-triton/issues/3449
-triton_config = {"grf_mode": "large"} if is_intel_alchemist else {}
+triton_config = {}
 
 
 @triton.autotune(

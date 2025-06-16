@@ -4,9 +4,7 @@ os.environ["KERAS_BACKEND"] = "torch"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 os.environ["KERNEL_TYPE"] = "triton"
 
-from ops import USE_KERNEL
 
-print("use kernel:" + str(USE_KERNEL))
 from keras import ops
 from src.backbone import *
 from src.convertor import *
@@ -34,7 +32,7 @@ standard_chnnal_mix = standard_RWKV.blocks[0].ffn
 my_time_mix = my_backbone.rwkv_layers[0].att
 standard_time_mix = standard_RWKV.blocks[0].att
 
-
+print("use kernel:" + str(my_time_mix.USE_KERNEL))
 for i in range(1):
     print("第%d次检查是否通过" % i)
     x = torch.randn(1, 8, args.n_embd).cuda() / 10

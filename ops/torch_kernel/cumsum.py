@@ -1,6 +1,5 @@
 from ops.triton_kernel.cumsum import *
 import torch
-from ops.get_torch_devices_info import prepare_chunk_indices
 
 
 def chunk_rwkv6_fwd_cumsum(

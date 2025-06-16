@@ -7,7 +7,7 @@ import jax_triton as jt
 import jax
 import triton
 
-from ops.get_jax_devices_info import prepare_chunk_indices, check_shared_mem
+from ops.get_jax_devices_info import check_shared_mem
 from ops.triton_kernel.chunk_h_fwd import *
 
 
@@ -20,25 +20,12 @@ def chunk_dplr_fwd_h(
     gk: jax.Array,
     initial_state: Optional[jax.Array] = None,
     output_final_state: bool = False,
-    cu_seqlens=None,
     chunk_size: int = 64,
 ) -> Tuple[jax.Array, jax.Array]:
     B, T, H, K, V = *kg.shape, u.shape[-1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    # N: the actual number of sequences in the batch with either equal or variable lengths
-    if cu_seqlens is None:
-        N, NT, chunk_offsets = B, triton.cdiv(T, BT), None
-    else:
-        raise (1)
-        N, NT, chunk_offsets = (
-            len(cu_seqlens) - 1,
-            len(chunk_indices),
-            prepare_chunk_offsets(cu_seqlens, BT),
-        )
+    N, NT, chunk_offsets = B, triton.cdiv(T, BT), None
     BK = triton.next_power_of_2(K)
     assert BK <= 256, "current kernel does not support head dimension larger than 256."
     # H100 can have larger block size

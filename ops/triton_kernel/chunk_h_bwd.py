@@ -12,7 +12,6 @@ from ops.triton_kernel.utils import exp, use_cuda_graph
     {
         "USE_FINAL_STATE_GRADIENT": lambda args: args["dht"] is not None,
         "USE_INITIAL_STATE": lambda args: args["dh0"] is not None,
-        "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
     }
 )
 @triton.autotune(
@@ -31,14 +30,12 @@ def chunk_dplr_bwd_kernel_dhu(
     w,
     gk,
     dht,
-    do,
     dv,
+    do,
+    T,
     dh,
     dh0,
     dv2,
-    cu_seqlens,
-    chunk_offsets,
-    T,
     H: tl.constexpr,
     K: tl.constexpr,
     V: tl.constexpr,
@@ -48,11 +45,10 @@ def chunk_dplr_bwd_kernel_dhu(
     BV: tl.constexpr,
     USE_FINAL_STATE_GRADIENT: tl.constexpr,
     USE_INITIAL_STATE: tl.constexpr,
-    IS_VARLEN: tl.constexpr,
 ):
     i_k, i_v, i_nh = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     i_n, i_h = i_nh // H, i_nh % H
-    if IS_VARLEN:
+    if False:
         bos, eos = (
             tl.load(cu_seqlens + i_n).to(tl.int32),
             tl.load(cu_seqlens + i_n + 1).to(tl.int32),

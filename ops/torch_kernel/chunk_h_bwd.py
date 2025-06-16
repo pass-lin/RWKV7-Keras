@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 import torch
 import triton
 
-from ops.get_torch_devices_info import check_shared_mem, prepare_chunk_indices
+from ops.get_torch_devices_info import check_shared_mem
 from ops.triton_kernel.chunk_h_bwd import *
 
 
@@ -19,7 +19,6 @@ def chunk_dplr_bwd_dhu(
     dht: Optional[torch.Tensor],
     do: torch.Tensor,
     dv: torch.Tensor,
-    cu_seqlens: Optional[torch.LongTensor] = None,
     chunk_size: int = 64,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     B, T, H, K, V = *qg.shape, do.shape[-1]
@@ -39,19 +38,7 @@ def chunk_dplr_bwd_dhu(
         BV = 16
         BC = 16
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    # N: the actual number of sequences in the batch with either equal or variable lengths
-    if cu_seqlens is None:
-        N, NT, chunk_offsets = B, triton.cdiv(T, BT), None
-    else:
-        raise (1)
-        N, NT, chunk_offsets = (
-            len(cu_seqlens) - 1,
-            len(chunk_indices),
-            prepare_chunk_offsets(cu_seqlens, BT),
-        )
+    N, NT, chunk_offsets = B, triton.cdiv(T, BT), None
 
     BC = min(BT, BC)
     NK, NV = triton.cdiv(K, BK), triton.cdiv(V, BV)
@@ -75,8 +62,6 @@ def chunk_dplr_bwd_dhu(
         dh=dh,
         dv=dv,
         dv2=dv2,
-        cu_seqlens=cu_seqlens,
-        chunk_offsets=chunk_offsets,
         T=T,
         H=H,
         K=K,

@@ -1,12 +1,10 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional
 
 import torch
 import triton
 
-from ops.get_torch_devices_info import prepare_chunk_indices
 from ops.triton_kernel.utils import is_gather_supported
 
 from ops.triton_kernel.chunk_A_fwd import *
@@ -21,17 +19,13 @@ def chunk_dplr_fwd_intra(
     ge: torch.Tensor,
     scale: float,
     chunk_size: int,
-    cu_seqlens: Optional[torch.LongTensor] = None,
 ):
     B, T, H, K = k.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
-    Aqk = q.new_empty(B, T, H, BT, dtype=torch.float)
+    Aqk = q.new_empty(B, T, H, BT, dtype=q.dtype)
     Aqb = q.new_empty(B, T, H, BT, dtype=q.dtype)
     # involving matrix inverse and it'd be better to use float here.
     Aab = q.new_empty(B, T, H, BT, dtype=torch.float)

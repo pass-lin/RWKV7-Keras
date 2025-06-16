@@ -8,7 +8,6 @@ import triton.language as tl
 from ops.triton_kernel.utils import exp, gather, use_cuda_graph
 
 
-
 @triton.autotune(
     configs=[
         triton.Config({}, num_warps=num_warps, num_stages=num_stages)
@@ -255,7 +254,6 @@ def chunk_dplr_bwd_kernel_intra(
         b_dgk_offset.to(p_dgk_offset.dtype.element_ty),
         boundary_check=(0, 1),
     )
-
 
 
 @triton.autotune(

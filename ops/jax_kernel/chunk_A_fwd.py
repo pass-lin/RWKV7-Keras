@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional
 
 import jax_triton as jt
 import jax
 import triton
 
-from ops.get_jax_devices_info import prepare_chunk_indices
 from ops.triton_kernel.utils import is_gather_supported
 
 from ops.triton_kernel.chunk_A_fwd import *
@@ -22,29 +20,25 @@ def chunk_dplr_fwd_intra(
     ge: jax.Array,
     scale: float,
     chunk_size: int,
-    cu_seqlens=None,
 ):
     B, T, H, K = k.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
     shape = [B, T, H, BT]
     out_shapes = [
-        jax.ShapeDtypeStruct(shape, "float32"),
-        jax.ShapeDtypeStruct(shape, q.dtype),
-        jax.ShapeDtypeStruct(shape, "float32"),
-        jax.ShapeDtypeStruct(shape, "float32"),
         jax.ShapeDtypeStruct(q.shape, q.dtype),
         jax.ShapeDtypeStruct(k.shape, q.dtype),
         jax.ShapeDtypeStruct(a.shape, q.dtype),
         jax.ShapeDtypeStruct(b.shape, q.dtype),
+        jax.ShapeDtypeStruct(shape, q.dtype),
+        jax.ShapeDtypeStruct(shape, q.dtype),
+        jax.ShapeDtypeStruct(shape, "float32"),
+        jax.ShapeDtypeStruct(shape, "float32"),
     ]
     grid = (NT, B, H)
     BK = triton.next_power_of_2(K)
-    Aqk, Aqb, Aab, Aak, qg, kg, ag, bg = jt.triton_call(
+    qg, kg, ag, bg, Aqk, Aqb, Aab, Aak = jt.triton_call(
         q,
         k,
         a,

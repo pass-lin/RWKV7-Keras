@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional
 
 import jax_triton as jt
 import jax
 import triton
 
-from ops.get_torch_devices_info import prepare_chunk_indices
 from ops.triton_kernel.chunk_o_fwd import *
 
 
@@ -18,16 +16,12 @@ def chunk_dplr_fwd_o(
     A_qk: jax.Array,
     A_qb: jax.Array,
     h: jax.Array,
-    cu_seqlens=None,
     chunk_size: int = 64,
 ) -> jax.Array:
     B, T, H, K, V = *qg.shape, v.shape[-1]
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
     def grid(meta):
         return (triton.cdiv(V, meta["BV"]), NT, B * H)

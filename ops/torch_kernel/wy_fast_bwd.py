@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 import triton
 
 
-from ops.get_torch_devices_info import check_shared_mem, prepare_chunk_indices
+from ops.get_torch_devices_info import check_shared_mem
 from ops.triton_kernel.wy_fast_bwd import *
 
 
@@ -19,7 +19,7 @@ def chunk_dplr_bwd_wy(
     dw: torch.Tensor,
     du: torch.Tensor,
     dv0: torch.Tensor,
-    chunk_size: int,
+    chunk_size: int = 16,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     A_ab_inv, A_ak, v, ag, dw, du = map(
         lambda x: x.contiguous(), [A_ab_inv, A_ak, v, ag, dw, du]

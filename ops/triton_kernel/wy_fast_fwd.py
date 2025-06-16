@@ -5,7 +5,7 @@
 import triton
 import triton.language as tl
 
-from ops.triton_kernel.utils import gather, is_gather_supported, use_cuda_graph
+from ops.triton_kernel.utils import is_gather_supported, use_cuda_graph, gather
 
 
 @triton.autotune(
@@ -213,7 +213,7 @@ def prepare_wy_repr_fwd_kernel_chunk64(
         for num_warps in [2, 4, 8, 16]
         for num_stages in [2, 3, 4]
     ],
-    key=["H", "K", "V", "BT", "BK", "BV", "IS_VARLEN"],
+    key=["H", "K", "V", "BT", "BK", "BV"],
     use_cuda_graph=use_cuda_graph,
 )
 @triton.jit(do_not_specialize=["T"])

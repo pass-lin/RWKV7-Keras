@@ -5,7 +5,6 @@ import functools
 import triton
 import jax
 import jax.numpy as jnp
-from keras import ops
 
 
 @lru_cache(maxsize=None)

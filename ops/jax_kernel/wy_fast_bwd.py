@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import jax_triton as jt
 import jax
@@ -20,7 +20,7 @@ def chunk_dplr_bwd_wy(
     dw: jax.Array,
     du: jax.Array,
     dv0: jax.Array,
-    chunk_size: int,
+    chunk_size: int = 16,
 ) -> Tuple[jax.Array, jax.Array, jax.Array]:
     B, T, H, K, V = *dw.shape, du.shape[-1]
     BT = min(chunk_size, max(triton.next_power_of_2(T), 16))

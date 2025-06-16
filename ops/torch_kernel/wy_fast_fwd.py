@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 import triton
 
-from ops.get_torch_devices_info import prepare_chunk_indices
 from ops.triton_kernel.wy_fast_fwd import *
 
 

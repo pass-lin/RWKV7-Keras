@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
 import triton
 
-from ops.get_torch_devices_info import prepare_chunk_indices, check_shared_mem
+from ops.get_torch_devices_info import check_shared_mem
 from ops.triton_kernel.chunk_o_bwd import *
 
 
@@ -15,16 +15,12 @@ def chunk_dplr_bwd_dv(
     kg: torch.Tensor,
     do: torch.Tensor,
     dh: torch.Tensor,
-    cu_seqlens: Optional[torch.LongTensor] = None,
     chunk_size: int = 64,
 ) -> torch.Tensor:
     B, T, H, K, V = *kg.shape, do.shape[-1]
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
     dv = torch.empty_like(do)
 
@@ -37,46 +33,6 @@ def chunk_dplr_bwd_dv(
         do=do,
         dv=dv,
         dh=dh,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
-        T=T,
-        H=H,
-        K=K,
-        V=V,
-        BT=BT,
-    )
-    return dv
-
-
-def chunk_dplr_bwd_dv(
-    A_qk: torch.Tensor,
-    kg: torch.Tensor,
-    do: torch.Tensor,
-    dh: torch.Tensor,
-    cu_seqlens: Optional[torch.LongTensor] = None,
-    chunk_size: int = 64,
-) -> torch.Tensor:
-    B, T, H, K, V = *kg.shape, do.shape[-1]
-    BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
-
-    dv = torch.empty_like(do)
-
-    def grid(meta):
-        return (triton.cdiv(V, meta["BV"]), NT, B * H)
-
-    chunk_dplr_bwd_kernel_dv[grid](
-        A_qk=A_qk,
-        kg=kg,
-        do=do,
-        dv=dv,
-        dh=dh,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
         T=T,
         H=H,
         K=K,
@@ -97,17 +53,13 @@ def chunk_dplr_bwd_o(
     dh: torch.Tensor,
     dv: torch.Tensor,
     w: torch.Tensor,
-    cu_seqlens: Optional[torch.LongTensor] = None,
     chunk_size: int = 64,
     scale: float = 1.0,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     B, T, H, K, V = *w.shape, v.shape[-1]
 
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
 
     BK = (
         min(triton.next_power_of_2(K), 64)
@@ -144,8 +96,6 @@ def chunk_dplr_bwd_o(
         dv=dv,
         dw=dw,
         gk=gk,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
         T=T,
         H=H,
         K=K,

@@ -71,5 +71,5 @@ def generalized_delta_rule(
 
     out = ops.transpose(out, [1, 0, 2, 3])
     if output_final_state:
-        return ops.cast(out,DTYPE), state
-    return ops.cast(out,DTYPE)
+        return ops.cast(out, DTYPE), state
+    return ops.cast(out, DTYPE)

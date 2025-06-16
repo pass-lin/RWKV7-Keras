@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
 
-from typing import Optional
 
 import torch
 import triton
 from ops.triton_kernel.chunk_A_bwd import *
 from ops.triton_kernel.utils import is_gather_supported
-from ops.get_torch_devices_info import check_shared_mem, prepare_chunk_indices
+from ops.get_torch_devices_info import check_shared_mem
 
 
 def chunk_dplr_bwd_dqk_intra(
@@ -27,8 +26,7 @@ def chunk_dplr_bwd_dqk_intra(
     dbg: torch.Tensor,
     dgk_last: torch.Tensor,
     scale: float = 1.0,
-    cu_seqlens: Optional[torch.LongTensor] = None,
-    chunk_size: int = 64,
+    chunk_size: int = 16,
 ):
     B, T, H, K = q.shape
     BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
@@ -38,11 +36,9 @@ def chunk_dplr_bwd_dqk_intra(
         else min(32, triton.next_power_of_2(K))
     )
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
-    NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
+    NT = triton.cdiv(T, BT)
     NK = triton.cdiv(K, BK)
+    grid = (NK, NT, B * H)
 
     dq = torch.empty_like(q)
     dk = torch.empty_like(k)
@@ -51,7 +47,6 @@ def chunk_dplr_bwd_dqk_intra(
     dgk = torch.empty_like(gi, dtype=torch.float)
     dgk_offset = torch.empty_like(gi, dtype=torch.float)
 
-    grid = (NK, NT, B * H)
     chunk_dplr_bwd_kernel_intra[grid](
         q=q,
         k=k,
@@ -82,6 +77,7 @@ def chunk_dplr_bwd_dqk_intra(
         BK=BK,
         GATHER_SUPPORTED=is_gather_supported,
     )
+
     dgk_output = torch.empty_like(dgk)
 
     def grid(meta):
@@ -91,8 +87,8 @@ def chunk_dplr_bwd_dqk_intra(
         dgk=dgk,
         dgk_offset=dgk_offset,
         dgk_last=dgk_last,
-        T=T,
         dgk_output=dgk_output,
+        T=T,
         H=H,
         K=K,
         BT=BT,
