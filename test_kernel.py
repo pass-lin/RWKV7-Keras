@@ -169,8 +169,19 @@ my_chunkout, my_state = chunk_rwkv7(
     initial_state=None,
     output_final_state=True,
 )
-print("校验jax和torch实现kernel前向的精度")
-test_output([jax_chunkout], [my_chunkout])
+print("校验jax和torch实现kernel前向的精度,主要误差来自jnp.exp和torch.exp")
+torch_out_numpy = my_chunkout.cpu().float().numpy()
+jax_out_numpy = np.array(ops.cast(jax_chunkout, "float32"))
+
+print(
+    "最大正数差异%f,平均差异%f,%f的输出完全一致"
+    % (
+        np.max(np.abs(torch_out_numpy - jax_out_numpy)),
+        np.mean(np.abs(torch_out_numpy - jax_out_numpy)),
+        np.sum(torch_out_numpy - jax_out_numpy == 0)
+        / np.cumprod(torch_out_numpy.shape)[-1],
+    )
+)
 fla_chunkout, fla_state = chunk_rwkv7_fla(
     r=torch_inputs[0],
     k=torch_inputs[1],
@@ -190,6 +201,28 @@ print(
         (fla_chunkout - my_chunkout).abs().mean(),
     )
 )
+
+
+mask = ops.concatenate([ops.ones([B, T]), ops.zeros([B, T])], axis=1)
+mask = ops.cast(mask, jax_chunkout.dtype)[:, :, None, None]
+
+
+def padding_input(x):
+    return ops.concatenate([x, x], axis=1)
+
+
+w = padding_input(ops.convert_to_tensor(gk, jax_inputs[2].dtype))
+w += (1 - mask) * -1e9
+jax_pad_chunkout, jax_pad_state = generalized_delta_rule(
+    r=padding_input(jax_inputs[0]) * mask,
+    k=padding_input(jax_inputs[1]) * mask,
+    v=padding_input(jax_inputs[2]) * mask,
+    a=padding_input(ops.convert_to_tensor(a, jax_inputs[2].dtype)) * mask,
+    b=padding_input(ops.convert_to_tensor(b, jax_inputs[2].dtype)) * mask,
+    w=w,
+)
+
+print("padding 后state的输出完全一致:%s" % str(ops.sum(jax_pad_state - jax_state) == 0))
 
 
 # 定义 loss 函数

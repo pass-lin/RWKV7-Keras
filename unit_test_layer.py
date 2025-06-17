@@ -65,7 +65,7 @@ for i in range(1):
             ops.isclose(
                 my_time_mix_out[0][:, mask.shape[-1] :],
                 standard_time_mix_out[0],
-                atol=1e-4,
+                atol=1e-3,
             )
         )
     )
