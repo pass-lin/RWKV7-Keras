@@ -252,7 +252,7 @@ def chunk_dplr_bwd(
     )
     del A_ak
 
-    return chunk_dplr_bwd_dqk_intra(
+    dq, dk, da, db, dgk = chunk_dplr_bwd_dqk_intra(
         q=q,
         k=k,
         a=a,

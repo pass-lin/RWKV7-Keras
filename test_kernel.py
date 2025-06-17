@@ -134,13 +134,22 @@ output_torch = torch_chunk_dplr_bwd(
     dht=torch.from_numpy(dht).to(torch_inputs[0]),
     BT=CHUNKSIZE,
     initial_state=None,
-    
 )
 output_torch = [t for t in output_torch if t is not None]
 print("校验chunk_dplr_fwd_bwd函数")
 test_output(output_jax, output_torch)
 
-raise (1)
+from ops.jax_op import generalized_delta_rule
+
+jax_chunkout, jax_state = generalized_delta_rule(
+    r=jax_inputs[0],
+    k=jax_inputs[1],
+    v=jax_inputs[2],
+    a=ops.convert_to_tensor(a, jax_inputs[2].dtype),
+    b=ops.convert_to_tensor(b, jax_inputs[2].dtype),
+    w=ops.convert_to_tensor(gk, jax_inputs[2].dtype),
+)
+
 
 try:
     from rwkvfla.ops.rwkv7 import chunk_rwkv7
@@ -160,6 +169,8 @@ my_chunkout, my_state = chunk_rwkv7(
     initial_state=None,
     output_final_state=True,
 )
+print("校验jax和torch实现kernel前向的精度")
+test_output([jax_chunkout], [my_chunkout])
 fla_chunkout, fla_state = chunk_rwkv7_fla(
     r=torch_inputs[0],
     k=torch_inputs[1],

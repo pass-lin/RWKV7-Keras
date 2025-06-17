@@ -89,7 +89,7 @@ def chunk_dplr_bwd_dqk_intra(
         K=K,
         BT=BT,
         kernel=chunk_dplr_bwd_dgk_kernel,
-        out_shape=jax.ShapeDtypeStruct(dgk.shape, dgk.dtype),
+        out_shape=[jax.ShapeDtypeStruct(dgk.shape, "float32")],
         grid=grid,
-    )
+    )[0]
     return dq, dk, da, db, dgk_output
