@@ -278,7 +278,7 @@ def chunk_dplr_bwd(
         jnp.asarray(da, a.dtype),
         jnp.asarray(db, b.dtype),
         jnp.asarray(dgk, gk.dtype),
-        dh0 if initial_state is not None else jnp.asarray(dh0,initial_state.dtype),
+        None if initial_state is None else jnp.asarray(dh0,initial_state.dtype),
     )
 
 

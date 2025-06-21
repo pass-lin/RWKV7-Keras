@@ -48,7 +48,7 @@ def chunk_dplr_bwd_dhu(
     dh_shape = (B, NT, H, K, V)
     out_shapes = [
         jax.ShapeDtypeStruct(dh_shape, dv.dtype),
-        jax.ShapeDtypeStruct(h0.shape, "float32"),
+        jax.ShapeDtypeStruct((B, H, K, V), "float32"),
         jax.ShapeDtypeStruct(dv.shape, dv.dtype),
     ]
 
