@@ -127,9 +127,11 @@ def get_generalized_delta_rule(HEAD_SIZE=None):
         from jax.lib import xla_bridge
         import jax
         import os
-
+        import logging
+        logging.basicConfig(level=logging.ERROR)
         os.environ["TRITON_LOG_LEVEL"] = "ERROR"  # 只显示错误级别的日志
         os.environ["TRITON_DISABLE_AUTOTUNE"] = "1"  # 禁用自动调优日志
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"  # 禁用自动调优日志
         if (
             xla_bridge.get_backend().platform == "gpu"
             and KERNEL_TYPE.lower() == "triton"
