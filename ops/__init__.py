@@ -120,7 +120,7 @@ def get_generalized_delta_rule(HEAD_SIZE=None):
                 w = transpose_head(w, head_first)
                 return RUN_CUDA_RWKV7g(r, w, k, v, a, b), None
         else:
-            from ops.torch_op import generalized_delta_rule
+            from ops.native_keras_op import generalized_delta_rule
 
             USE_KERNEL = False
     elif keras.config.backend() == "jax":

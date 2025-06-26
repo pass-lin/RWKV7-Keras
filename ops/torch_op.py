@@ -415,7 +415,6 @@ def transpose_head(x, head_first):
         x = torch.permute(x, dims=(0, 2, 1, 3))
     return cast(x, torch.bfloat16)
 
-
 def generalized_delta_rule(
     r: torch.Tensor,
     w: torch.Tensor,
@@ -434,16 +433,29 @@ def generalized_delta_rule(
     a = transpose_head(a, head_first)
     b = transpose_head(b, head_first)
     w = transpose_head(w, head_first)
-    out, state = chunk_rwkv7(
-        r=r,
-        k=k,
-        v=v,
-        a=a,
-        b=b,
-        w=w,
-        initial_state=initial_state,
-        output_final_state=output_final_state,
-    )
+    if w.device.type == 'cuda':
+        out, state = chunk_rwkv7(
+            r=r,
+            k=k,
+            v=v,
+            a=a,
+            b=b,
+            w=w,
+            initial_state=initial_state,
+            output_final_state=output_final_state,
+        )
+    else:
+        from ops.native_keras_op import generalized_delta_rule
+        out, state = generalized_delta_rule(
+            r=r,
+            k=k,
+            v=v,
+            a=a,
+            b=b,
+            w=w,
+            initial_state=initial_state,
+            output_final_state=output_final_state,
+        )
     out = transpose_head(out, dtype)
     if output_final_state:
         return out, cast(state, dtype)
