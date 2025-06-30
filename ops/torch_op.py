@@ -37,9 +37,9 @@ def chunk_dplr_fwd(
     a: torch.Tensor,
     b: torch.Tensor,
     gk: torch.Tensor,
-    scale: float,
-    initial_state: torch.Tensor,
-    output_final_state: bool,
+    scale: float = 1,
+    initial_state: torch.Tensor = None,
+    output_final_state: bool = True,
     chunk_size: int = 16,
 ):
     T = q.shape[1]
@@ -101,7 +101,6 @@ def chunk_dplr_bwd(
 ):
     # ******* start recomputing everything, otherwise i believe the gpu memory will be exhausted *******
     gi, ge = chunk_rwkv6_fwd_cumsum(gk, BT)
-
     A_ab, A_qk, A_ak, A_qb, qg, kg, ag, bg = chunk_dplr_fwd_intra(
         q=q,
         k=k,
@@ -217,9 +216,9 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
         a: torch.Tensor,
         b: torch.Tensor,
         gk: torch.Tensor,
-        scale: float,
-        initial_state: torch.Tensor,
-        output_final_state: bool,
+        scale: float = 1,
+        initial_state: torch.Tensor = None,
+        output_final_state: bool = True,
         cu_seqlens: Optional[torch.LongTensor] = None,
     ):
         chunk_size = 16
@@ -251,17 +250,17 @@ class ChunkDPLRDeltaRuleFunction(torch.autograd.Function):
         scale = ctx.scale
 
         return chunk_dplr_bwd(
-            q,
-            k,
-            v,
-            a,
-            b,
-            gk,
-            scale,
-            initial_state,
-            do,
-            dht,
-            BT,
+            q=q,
+            k=k,
+            v=v,
+            a=a,
+            b=b,
+            gk=gk,
+            scale=scale,
+            initial_state=initial_state,
+            do=do,
+            dht=dht,
+            BT=BT,
         )
 
 
@@ -413,7 +412,9 @@ def chunk_rwkv7(
 def transpose_head(x, head_first):
     if head_first:
         x = torch.permute(x, dims=(0, 2, 1, 3))
-    return cast(x, torch.bfloat16)
+    out = cast(x, torch.bfloat16).contiguous()
+    return out
+
 
 def generalized_delta_rule(
     r: torch.Tensor,
@@ -433,7 +434,7 @@ def generalized_delta_rule(
     a = transpose_head(a, head_first)
     b = transpose_head(b, head_first)
     w = transpose_head(w, head_first)
-    if w.device.type == 'cuda':
+    if w.device.type == "cuda":
         out, state = chunk_rwkv7(
             r=r,
             k=k,
