@@ -156,17 +156,15 @@ try:
 except:
     from rwkvfla.ops.rwkv7 import chunk_rwkv7 as chunk_rwkv7_fla
 
-from ops.torch_op import chunk_rwkv7
+from ops.torch_op import generalized_delta_rule as generalized_delta_rule_torch
 
-my_chunkout, my_state = chunk_rwkv7(
+my_chunkout, my_state = generalized_delta_rule_torch(
     r=torch_inputs[0],
     k=torch_inputs[1],
     v=torch_inputs[2],
     a=torch.from_numpy(a).bfloat16().cuda(),
     b=torch.from_numpy(b).bfloat16().cuda(),
     w=torch.from_numpy(gk).bfloat16().cuda(),
-    scale=1,
-    initial_state=None,
     output_final_state=True,
 )
 print("校验jax和torch实现kernel前向的精度,主要误差来自jnp.exp和torch.exp")

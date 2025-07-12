@@ -457,7 +457,7 @@ def generalized_delta_rule(
             initial_state=initial_state,
             output_final_state=output_final_state,
         )
-    out = transpose_head(out, dtype)
+    out = transpose_head(out,head_first)
     if output_final_state:
         return out, cast(state, dtype)
     else:
