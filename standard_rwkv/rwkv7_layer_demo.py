@@ -44,9 +44,9 @@ elif "421M" in MODEL_PATH:
     D_MV_LORA = 64
     D_GATE_LORA = 128
 
-args.vocab_size = 50304  # "pile" model: 50277 padded to 50304
+args.vocab_size = 65536  # "pile" model: 50277 padded to 50304
 
-DTYPE = torch.bfloat16
+# DTYPE = torch.float
 # DTYPE = torch.half # better
 
 args.head_size_a = 64  # don't change
@@ -64,6 +64,7 @@ MyStatic = torch.jit.script
 
 
 def RWKV7_OP(r, w, k, v, a, b):
+    DTYPE = r.dtype
     B, T, C = r.size()
     H = C // HEAD_SIZE
     N = HEAD_SIZE
@@ -88,7 +89,7 @@ def RWKV7_OP(r, w, k, v, a, b):
         state = state * w[:, t, :, None, :] + state @ aa @ bb + vv @ kk
 
         out[:, t, :] = (state @ rr).view(B, H, N)
-    return out.view(B, T, C)
+    return out.view(B, T, C).to(DTYPE)
 
 
 ########################################################################################################
@@ -214,7 +215,7 @@ class RWKV_Tmix_x070(nn.Module):
 
         k = k * (1 + (a - 1) * self.k_a)
 
-        x = RWKV7_OP(r, w, k, v, -kk, kk * a).to(DTYPE)
+        x = RWKV7_OP(r, w, k, v, -kk, kk * a)
 
         x = self.ln_x(x.view(B * T, C)).view(B, T, C)
 
@@ -250,7 +251,6 @@ class RWKV_CMix_x070(MyModule):
         init.normal_(self.value.weight, mean=0, std=0.02)
         init.normal_(self.x_k, mean=0, std=0.02)
 
-    @MyFunction
     def forward(self, x):
         xx = self.time_shift(x) - x
 

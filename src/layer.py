@@ -2,7 +2,80 @@ import keras
 from keras import initializers
 from keras import ops
 from keras.layers import Layer
-from ops import get_generalized_delta_rule
+import warnings
+
+
+def transpose_head(x, head_first):
+    x = ops.cast(x, dtype="float32")
+    if head_first:
+        return ops.transpose(x, (0, 2, 1, 3))
+    else:
+        return x
+
+
+def rnn_generalized_delta_rule(
+    r,
+    w,
+    k,
+    v,
+    a,
+    b,
+    initial_state=None,
+    output_final_state: bool = True,
+    head_first: bool = False,
+):
+    """
+    Implements the generalized delta rule.
+
+    Parameters:
+    r: Input tensor.
+    w: Weight tensor.
+    k, v, a, b: Other input tensors.
+    initial_state: Initial state tensor.
+    output_final_state: Whether to return the final state.
+    head_first: Whether to place the head dimension first during computation.
+
+    Returns:
+    Final state if output_final_state is True, otherwise only the output.
+    """
+    DTYPE = r.dtype
+    B, T, H, N = ops.shape(r)
+    r = transpose_head(r, head_first)
+
+    k = transpose_head(k, head_first)
+
+    v = transpose_head(v, head_first)
+    a = transpose_head(a, head_first)
+    b = transpose_head(b, head_first)
+    w = transpose_head(w, head_first)
+    w = ops.exp(-ops.exp(w))
+
+    if initial_state is not None:
+        state = initial_state
+        if ops.shape(state)[0] == 1:
+            state = ops.broadcast_to(state, (B, H, N, N))
+    else:
+        state = ops.zeros((B, H, N, N))
+    state = ops.cast(state, "float32")
+    out = ops.zeros((B, T, H, N), DTYPE)
+
+    def step(t, inputs):
+        state, out = inputs
+        kk = ops.reshape(k[:, t, :], (B, H, 1, N))
+        rr = ops.reshape(r[:, t, :], (B, H, N, 1))
+        vv = ops.reshape(v[:, t, :], (B, H, N, 1))
+        aa = ops.reshape(a[:, t, :], (B, H, N, 1))
+        bb = ops.reshape(b[:, t, :], (B, H, 1, N))
+        state = state * w[:, t, :, None, :] + state @ aa @ bb + vv @ kk
+        o = ops.cast((state @ rr), out.dtype)
+        out = ops.slice_update(out, [0, t, 0, 0], ops.reshape(o, (B, 1, H, N)))
+        return [state, out]
+
+    state, out = ops.fori_loop(0, T, step, [state, out])
+
+    if output_final_state:
+        return ops.cast(out, DTYPE), state
+    return ops.cast(out, DTYPE)
 
 
 class TimeShift(Layer):
@@ -10,10 +83,11 @@ class TimeShift(Layer):
         super(TimeShift, self).__init__(name=name)
 
     def call(self, inputs, cache_x=None):
-        x = ops.pad(inputs, [[0, 0], [1, 0], [0, 0]], constant_values=0.0)[:, :-1, :]
         if cache_x is not None:
-            x = ops.slice_update(x, [0, 0, 0], cache_x)
-        return x
+            x = ops.concatenate([cache_x, inputs], axis=1)
+        else:
+            x = ops.pad(inputs, [[0, 0], [1, 0], [0, 0]], constant_values=0.0)
+        return x[:, :-1, :]
 
     def compute_output_shape(self, input_shape):
         return input_shape
@@ -25,11 +99,16 @@ class RWKV7_ChannelMix(Layer):
         self.dim_ffn = dim_ffn
         self.kernel_initializer = initializers.get(kernel_initializer)
 
-    def call(self, x):
-        xx = self.time_shift(x) - x
+    def call(self, x, last_cache_x=None, train_mode=True):
+        xx = self.time_shift(x, last_cache_x) - x
+        if last_cache_x is not None or not train_mode:
+            last_cache_x = x[:, -1:]
         k = x + xx * self.x_k
-        k = self.key(k) ** 2
-        return self.value(k)
+        k = ops.relu(self.key(k)) ** 2
+        output = self.value(k)
+        if train_mode:
+            return output
+        return output, last_cache_x
 
     def compute_output_shape(self, input_shape):
         if isinstance(input_shape, list):
@@ -48,7 +127,6 @@ class RWKV7_ChannelMix(Layer):
         self.time_shift = TimeShift()
         self.key = keras.layers.Dense(
             self.dim_ffn,
-            activation="relu",
             use_bias=False,
             name="dense_k",
             kernel_initializer=self.kernel_initializer,
@@ -104,7 +182,20 @@ class RWKV7_TimeMix(Layer):
         self.decay_lora = decay_lora
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.initial_state = None
-        self.RWKV7_OP, self.USE_KERNEL = get_generalized_delta_rule(head_size)
+        try:
+            from rwkv_ops import generalized_delta_rule
+
+            self.RWKV7_OP = generalized_delta_rule
+        except ImportError:
+            warnings.warn(
+                "The 'rwkv_ops' package is not installed. "
+                "Falling back to the default (pure-Python) operators, which will be very slow. "
+                "Please install 'rwkv_ops' to enable the optimized kernels.",
+                UserWarning,
+                stacklevel=2,
+            )
+            self.RWKV7_OP = rnn_generalized_delta_rule
+
         assert self.hidden_size % self.n_head == 0
 
     def build(self, input_shape):
@@ -199,23 +290,35 @@ class RWKV7_TimeMix(Layer):
 
         self.time_shift = TimeShift()
         self.receptance = keras.layers.Dense(
-            C, use_bias=False, kernel_initializer=self.kernel_initializer
+            C,
+            use_bias=False,
+            kernel_initializer=self.kernel_initializer,
+            name="receptance",
         )
         self.key = keras.layers.Dense(
-            C, use_bias=False, kernel_initializer=self.kernel_initializer
+            C,
+            use_bias=False,
+            kernel_initializer=self.kernel_initializer,
+            name="key",
         )
         self.value = keras.layers.Dense(
-            C, use_bias=False, kernel_initializer=self.kernel_initializer
+            C,
+            use_bias=False,
+            kernel_initializer=self.kernel_initializer,
+            name="value",
         )
-        self.output = keras.layers.Dense(
-            C, use_bias=False, kernel_initializer=self.kernel_initializer
+        self.output_layer = keras.layers.Dense(
+            C,
+            use_bias=False,
+            kernel_initializer=self.kernel_initializer,
+            name="output_layer",
         )
         self.ln_x = GroupNorm(groups=H, epsilon=64e-5)
 
         self.receptance.build(input_shape)
         self.value.build(input_shape)
         self.key.build(input_shape)
-        self.output.build(input_shape)
+        self.output_layer.build(input_shape)
         self.ln_x.build((None, C))
 
     def call(
@@ -223,10 +326,15 @@ class RWKV7_TimeMix(Layer):
         x,
         v_first=None,
         padding_mask=None,
-        initial_state=None,
+        last_cache_x=None,
+        cache_state=None,
+        rnn_mode=False,
+        train_mode=True,
     ):
-        if initial_state == None:
+        if cache_state == None:
             initial_state = self.initial_state
+        else:
+            initial_state = cache_state
         if padding_mask is not None:
             if ops.ndim(padding_mask) == 2:
                 padding_mask = padding_mask[..., None]
@@ -234,7 +342,11 @@ class RWKV7_TimeMix(Layer):
             x *= padding_mask
         B, T, C = ops.shape(x)
         H = self.n_head
-        xx = self.time_shift(x) - x
+        xx = self.time_shift(x, last_cache_x) - x
+        if last_cache_x is not None or not train_mode:
+            last_cache_x = x[:, -1:]
+        if padding_mask is not None:
+            xx *= padding_mask
 
         xr = x + xx * self.x_r
         xw = x + xx * self.x_w
@@ -252,7 +364,7 @@ class RWKV7_TimeMix(Layer):
         )  # soft-clamp to (-inf, -0.5)
         k = self.key(xk)
         v = self.value(xv)
-        if v_first == None:
+        if v_first is None:
             v_first = v
         else:
             v = v + (v_first - v) * ops.sigmoid(
@@ -271,24 +383,30 @@ class RWKV7_TimeMix(Layer):
 
         k = k * (1 + (a - 1) * self.k_a)
         if padding_mask is not None:
-            v *= padding_mask
-            if self.USE_KERNEL:
-                w += (1 - padding_mask) * -1e9
-            else:
-                w = w * padding_mask + 1 - padding_mask
-        # N = self.head_size
+            w = ops.where(padding_mask, w, -1e9)
+        if rnn_mode:
+            rwkv7_op = rnn_generalized_delta_rule
+        else:
+            rwkv7_op = self.RWKV7_OP
 
-        x, finnal_state = self.RWKV7_OP(
-            ops.reshape(r, (B, T, self.n_head, self.head_size)),
-            ops.reshape(w, (B, T, self.n_head, self.head_size)),
-            ops.reshape(k, (B, T, self.n_head, self.head_size)),
-            ops.reshape(v, (B, T, self.n_head, self.head_size)),
-            ops.reshape(-kk, (B, T, self.n_head, self.head_size)),
-            ops.reshape(kk * a, (B, T, self.n_head, self.head_size)),
-            initial_state=self.initial_state,
+        def reshape_and_cast(x, new_shape, dtype="float32"):
+            x = ops.reshape(x, new_shape)
+            if rnn_mode:
+                return x
+            return ops.cast(x, dtype)
+
+        x, finnal_state = rwkv7_op(
+            reshape_and_cast(r, (B, T, self.n_head, self.head_size)),
+            reshape_and_cast(w, (B, T, self.n_head, self.head_size)),
+            reshape_and_cast(k, (B, T, self.n_head, self.head_size)),
+            reshape_and_cast(v, (B, T, self.n_head, self.head_size)),
+            reshape_and_cast(-kk, (B, T, self.n_head, self.head_size)),
+            reshape_and_cast(kk * a, (B, T, self.n_head, self.head_size)),
+            initial_state=ops.cast(initial_state, "float32")
+            if initial_state is not None
+            else None,
         )
-
-        x = ops.reshape(x, (B, T, C))
+        x = reshape_and_cast(x, (B, T, C), self.compute_dtype)
 
         x = ops.reshape(self.ln_x(ops.reshape(x, (B * T, C))), ops.shape(x))
 
@@ -302,8 +420,10 @@ class RWKV7_TimeMix(Layer):
         )
 
         x = x + ops.reshape(rwkv, (B, T, C))
-        x = self.output(x * g)
-        return x, v_first
+        x = self.output_layer(x * g)
+        if train_mode:
+            return x, v_first
+        return x, v_first, last_cache_x, finnal_state
 
     def compute_output_shape(self, input_shape):
         output_shapes = [
@@ -318,7 +438,10 @@ class RWKV7_TimeMix(Layer):
         eps: float = 1e-12,
     ):
         # F.normalize like api
+        if keras.config.backend() == "torch":
+            import torch.nn.functional as F
 
+            return F.normalize(x, dim=-1, p=2.0)
         square_sum = ops.sum(ops.square(x), axis=-1, keepdims=True)
         inv_norm = ops.rsqrt(square_sum + eps)
         inv_norm = ops.maximum(inv_norm, eps)
@@ -336,22 +459,6 @@ class RWKV7_TimeMix(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
-    def enable_state_tuning(self):
-        if self.initial_state is None:
-            self._tracker.unlock()
-            H, N = self.n_head, self.head_size
-            self.initial_state = self.add_weight(
-                shape=(1, H, N, N),
-                name="initial_state",
-                initializer="zeros",
-                trainable=True,
-            )
-            self._tracker.lock()
-
-
-class LayerNorm(keras.layers.LayerNormalization):
-    pass
 
 
 class RWKV7_Block(Layer):
@@ -382,13 +489,13 @@ class RWKV7_Block(Layer):
     def build(self, input_shape):
         super().build(input_shape)
         if self.use_initial_norm:
-            self.ln0 = LayerNorm(epsilon=1e-5, name="init_norm")
+            self.ln0 = keras.layers.LayerNormalization(epsilon=1e-5, name="init_norm")
             self.ln0.build(input_shape)
 
-        self.ln1 = LayerNorm(epsilon=1e-5, name="att_norm")
+        self.ln1 = keras.layers.LayerNormalization(epsilon=1e-5, name="att_norm")
         self.ln1.build(input_shape)
 
-        self.ln2 = LayerNorm(epsilon=1e-5, name="ffn_norm")
+        self.ln2 = keras.layers.LayerNormalization(epsilon=1e-5, name="ffn_norm")
         self.ln2.build(input_shape)
 
         self.att = RWKV7_TimeMix(
@@ -410,15 +517,52 @@ class RWKV7_Block(Layer):
         )
         self.ffn.build(input_shape)
 
-    def call(self, x, v_first=None, padding_mask=None):
+    def call(
+        self,
+        x,
+        v_first=None,
+        padding_mask=None,
+        cache_state=None,
+        cache_tmix_x=None,
+        cache_cmix_x=None,
+        rnn_mode=False,
+        train_mode=True,
+    ):
+        if padding_mask is not None:
+            padding_mask = ops.cast(padding_mask, x.dtype)
+            padding_mask = ops.expand_dims(padding_mask, axis=-1)
         if self.use_initial_norm:
             x = self.ln0(x)
-
-        xx, v_first = self.att(self.ln1(x), v_first, padding_mask)
-
-        x = x + xx
-        x = x + self.ffn(self.ln2(x))
-        return x, v_first
+        if train_mode:
+            xx, v_first = self.att(
+                self.ln1(x),
+                v_first=v_first,
+                padding_mask=padding_mask,
+                train_mode=train_mode,
+            )
+            x = x + xx
+            xx = self.ln2(x)
+            if padding_mask is not None:
+                xx = xx * padding_mask
+            x = x + self.ffn(xx, train_mode=train_mode)
+            return x, v_first
+        else:
+            xx, v_first, cache_tmix_x, cache_state = self.att.call(
+                self.ln1(x),
+                v_first=v_first,
+                padding_mask=padding_mask,
+                last_cache_x=cache_tmix_x,
+                cache_state=cache_state,
+                rnn_mode=rnn_mode,
+                train_mode=train_mode,
+            )
+            x = x + xx
+            xx = self.ln2(x)
+            if padding_mask is not None:
+                xx = xx * padding_mask
+            xx, cache_cmix_x = self.ffn(xx, cache_cmix_x, train_mode=train_mode)
+            x = x + xx
+            return x, v_first, cache_state, cache_tmix_x, cache_cmix_x
 
     def compute_output_shape(self, input_shape):
         output_shapes = [
@@ -441,6 +585,3 @@ class RWKV7_Block(Layer):
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
-    def enable_state_tuning(self):
-        self.att.enable_state_tuning()

@@ -21,7 +21,7 @@ class RWKV7Backbone(Backbone):
         aaa_lora=64,
         decay_lora=64,
         dtype=None,
-        dropout=0.1,
+        dropout_rate=0,
         **kwargs,
     ):
         # === Layers ===
@@ -34,10 +34,12 @@ class RWKV7Backbone(Backbone):
         )
         self.token_embedding.build([None, None])
 
-        self.output_layer_norm = LayerNorm(epsilon=1e-5, name="output_norm")
+        self.output_layer_norm = keras.layers.LayerNormalization(
+            epsilon=1e-5, name="output_norm"
+        )
         self.output_layer_norm.build([None, None, hidden_size])
         self.dropout = keras.layers.Dropout(
-            dropout,
+            dropout_rate,
             dtype=dtype,
             name="dropout",
         )
@@ -58,7 +60,12 @@ class RWKV7Backbone(Backbone):
             )
 
             self.rwkv_layers.append(layer)
-
+        self.head = keras.layers.Dense(
+            units=vocabulary_size,
+            kernel_initializer=rwkv7_kernel_initializer(),
+            use_bias=False,
+            name="head",
+        )
         # === Functional Model ===
         token_id_input = keras.Input(shape=(None,), dtype="int32", name="token_ids")
 
@@ -71,13 +78,14 @@ class RWKV7Backbone(Backbone):
             x, v_first = rwkv_layer(x, v_first, padding_mask)
             x = self.dropout(x)
         sequence_output = self.output_layer_norm(x)
-
+        sequence_output = self.head(sequence_output)
         super().__init__(
             inputs=token_id_input,
             outputs=sequence_output,
             dtype=dtype,
             **kwargs,
         )
+        self.call(ops.ones([1, 16], "int32"))
 
         self.num_layers = num_layers
         self.head_size = head_size
@@ -87,9 +95,8 @@ class RWKV7Backbone(Backbone):
         self.aaa_lora = aaa_lora
         self.decay_lora = decay_lora
         self.vocabulary_size = vocabulary_size
-        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         self.intermediate_dim = intermediate_dim
-        self.call(ops.ones([1, 1]), training=False)
 
     def get_config(self):
         config = {
@@ -100,15 +107,9 @@ class RWKV7Backbone(Backbone):
             "aaa_lora": self.aaa_lora,
             "decay_lora": self.decay_lora,
             "vocabulary_size": self.vocabulary_size,
-            "dropout": self.dropout,
+            "dropout_rate": self.dropout_rate,
             "intermediate_dim": self.intermediate_dim,
             "num_layers": self.num_layers,
         }
         base_config = super().get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
-    def enable_state_tuning(self):
-        for weights in self.weights:
-            weights.trainable = False
-        for rwkv_layer in self.rwkv_layers:
-            rwkv_layer.enable_state_tuning()
